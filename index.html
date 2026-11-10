@@ -477,7 +477,7 @@ function applyRealtimeRow(row){
  if(!row?.payload||applyingRemote)return;
  const d=row.payload;applyingRemote=true;
  try{
-  const currentPage=d.productDraft?.active?'prod':(S.page||'dash');
+  const draftChanged=JSON.stringify(d.productDraft||{})!==JSON.stringify(S.productDraft||{});const currentPage=(d.productDraft?.active&&draftChanged)?'prod':(S.page||'dash');
   const activeId=document.activeElement?.id||'';
   const activeStart=(document.activeElement&&typeof document.activeElement.selectionStart==='number')?document.activeElement.selectionStart:null;
   const activeEnd=(document.activeElement&&typeof document.activeElement.selectionEnd==='number')?document.activeElement.selectionEnd:null;
