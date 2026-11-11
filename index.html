@@ -375,7 +375,7 @@ const LIBS=['https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js
 let LP=null;
 function loadLib(){if(window.Html5Qrcode)return Promise.resolve();if(LP)return LP;LP=new Promise((res,rej)=>{let i=0;const t=()=>{if(i>=LIBS.length){LP=null;return rej(new Error('lib'))}const sc=document.createElement('script');sc.src=LIBS[i++];sc.onload=()=>window.Html5Qrcode?res():t();sc.onerror=()=>{sc.remove();t()};document.head.appendChild(sc)};t()});return LP}
 loadLib().catch(()=>{});
-function mk(id){const F=Html5QrcodeSupportedFormats;return new Html5Qrcode(id,{formatsToSupport:[F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E,F.CODE_128,F.CODE_39,F.ITF],experimentalFeatures:{useBarCodeDetectorIfSupported:true},verbose:false})}
+function mk(id){const F=Html5QrcodeSupportedFormats;return new Html5Qrcode(id,{formatsToSupport:[F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E,F.ITF],experimentalFeatures:{useBarCodeDetectorIfSupported:false},verbose:false})}
 function camErr(e){const n=(e&&e.name)||String(e||'');const d=' [info: '+location.protocol+' | aman='+(window.isSecureContext?'ya':'tidak')+' | '+(window.top!==window?'dalam-frame':'halaman-penuh')+' | '+n+']';
  if(n=='NotAllowedError'||n=='PermissionDeniedError'||n=='SecurityError')return (window.top!==window?'Kamera diblokir karena halaman ini dibuka di dalam pratinjau/aplikasi lain. Buka file di browser sendiri (Chrome) lewat alamat https://.':'Izin kamera ditolak. Ketuk ikon gembok di address bar, izinkan Kamera, lalu muat ulang halaman.')+d;
  if(n=='NotFoundError'||n=='OverconstrainedError')return 'Kamera tidak ditemukan di perangkat ini.'+d;
@@ -386,14 +386,19 @@ async function startNative(m,msg){
  const st=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
  const v=document.createElement('video');v.setAttribute('playsinline','');v.muted=true;v.style.cssText='width:100%;border-radius:12px;background:#000';v.srcObject=st;
  const rd=document.getElementById('rd');rd.innerHTML='';rd.appendChild(v);await v.play();
- NV={st,run:true};msg.textContent='Arahkan kamera ke barcode (jarak sekitar 15 cm)';
- const loop=async()=>{if(!NV||!NV.run)return;try{const r=await det.detect(v);if(r.length){scanIn(r[0].rawValue,m);if(m!='sell'){stopCam();return}}}catch(e){}setTimeout(loop,120)};loop()}
+ NV={st,run:true};msg.textContent='Arahkan ke satu barcode batang 1D bernomor. Jangan sertakan barcode lain.';
+ const loop=async()=>{if(!NV||!NV.run)return;try{const r=await det.detect(v);
+ // Hanya terima satu simbol barcode 1D yang terdeteksi utuh dalam satu frame.
+ // Jika ada lebih dari satu barcode terlihat, abaikan frame agar tidak salah memilih.
+ if(r.length===1){const val=String(r[0].rawValue||'').trim();if(/^\\d+$/.test(val)){scanIn(val,m,'camera');if(m!='sell'){stopCam();return}}}
+ else if(r.length>1){msg.textContent='Terdeteksi lebih dari satu barcode. Arahkan kamera ke satu barcode saja.'}
+ }catch(e){}setTimeout(loop,180)};loop()}
 async function startLib(m,msg){
  try{await loadLib()}catch(e){msg.textContent='Pustaka scan gagal dimuat (cek internet). Pakai alat scanner atau ketik barcode.';return}
  H5=mk('rd');const cfg={fps:12,qrbox:(w,h)=>({width:Math.floor(Math.min(w*.9,380)),height:Math.floor(Math.min(h*.5,160))})};
  const ok=t=>{scanIn(t,m);if(m!='sell')stopCam()};
- try{await H5.start({facingMode:'environment'},cfg,ok,()=>{});msg.textContent='Arahkan kamera ke barcode (jarak sekitar 15 cm)'}
- catch(e){try{const c=await Html5Qrcode.getCameras();if(!c.length)throw {name:'NotFoundError'};await H5.start(c[0].id,cfg,ok,()=>{});msg.textContent='Arahkan kamera ke barcode'}catch(e2){msg.textContent=camErr(e2&&e2.name?e2:e)}}}
+ try{await H5.start({facingMode:'environment'},cfg,ok,()=>{});msg.textContent='Arahkan ke satu barcode batang 1D bernomor. Jangan sertakan barcode lain.'}
+ catch(e){try{const c=await Html5Qrcode.getCameras();if(!c.length)throw {name:'NotFoundError'};await H5.start(c[0].id,cfg,ok,()=>{});msg.textContent='Arahkan ke satu barcode batang 1D bernomor.'}catch(e2){msg.textContent=camErr(e2&&e2.name?e2:e)}}}
 async function cam(m){CM=m;document.getElementById('camov').style.display='block';const msg=document.getElementById('cmsg');msg.textContent='Membuka kamera...';
  try{AC=AC||new(window.AudioContext||window.webkitAudioContext)();AC.resume()}catch(e){}
  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){msg.textContent='Kamera butuh koneksi aman (HTTPS). Buka lewat alamat https:// di Chrome,. [info: '+location.protocol+']';return}
