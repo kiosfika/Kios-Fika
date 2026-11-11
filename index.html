@@ -357,6 +357,14 @@ function beep(){try{AC=AC||new(window.AudioContext||window.webkitAudioContext)()
 ['click','touchstart','keydown'].forEach(ev=>document.addEventListener(ev,()=>{try{AC=AC||new(window.AudioContext||window.webkitAudioContext)();AC.resume()}catch(e){}},{once:true}));
 /* src='kbd' = alat scanner/ketik: barang yang sama boleh discan berurutan. Kamera diberi jeda agar tidak terbaca dobel */
 function okScan(c,src){const n=Date.now();if(!c)return false;if(src!=='kbd'&&(n-last.t<700||(c===last.c&&n-last.t<2500)))return false;last={c,t:n};beep();return true}
+/* Validasi checksum EAN-13 / EAN-8: bacaan kamera yang salah satu angkanya meleset akan DITOLAK */
+function eanOK(c){if(!/^\d+$/.test(c)||(c.length!==13&&c.length!==8))return false;const d=c.split('').map(Number),k=d.pop();let t=0;d.reverse().forEach((x,i)=>t+=x*(i%2?1:3));return (10-t%10)%10===k}
+/* Kamera: kode baru diterima jika valid DAN terbaca sama 3x berturut-turut (maks. selang 1,2 detik) */
+let CC={c:'',n:0,t:0};
+function camIn(raw,m){const c=String(raw).trim(),msg=document.getElementById('cmsg'),n=Date.now();
+ if(!eanOK(c)){CC={c:'',n:0,t:0};if(msg&&/^\d+$/.test(c))msg.textContent='Bacaan tidak valid ('+c+'), dekatkan & arahkan ulang barcode...';return false}
+ if(CC.c===c&&n-CC.t<1200)CC.n++;else CC={c,n:1,t:n};CC.t=n;
+ if(CC.n<3)return false;CC={c:'',n:0,t:0};scanIn(c,m,'camera');return true}
 function scanIn(code,m,src){code=String(code).trim();if(!okScan(code,src))return;onCode(code,m)}
 function onCode(code,m){const msg=document.getElementById('cmsg');
  if(m=='sell'){const p=S.prods.find(x=>x.b&&fp(x.b)==fp(code));if(!p){if(document.getElementById('camov').style.display==='block'){if(msg)msg.textContent='⚠ Barcode '+code+' belum terdaftar';toast('Barcode '+code+' belum terdaftar');return}S.productDraft=S.productDraft||{};S.productDraft.b=code;S.productDraft.active=true;save();go('prod');setTimeout(()=>{const pb=document.getElementById('pb');if(pb){pb.value=code;document.getElementById('pn').focus()}},50);toast('Barcode '+code+' belum terdaftar, formulir produk dibagikan ke perangkat lain');return}add(p.id);if(msg)msg.textContent='✔ '+p.n+' ditambahkan · '+S.cart.reduce((a,c)=>a+c.q,0)+' item di keranjang. Scan barang berikutnya atau tekan Tutup.'}
@@ -375,28 +383,28 @@ const LIBS=['https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js
 let LP=null;
 function loadLib(){if(window.Html5Qrcode)return Promise.resolve();if(LP)return LP;LP=new Promise((res,rej)=>{let i=0;const t=()=>{if(i>=LIBS.length){LP=null;return rej(new Error('lib'))}const sc=document.createElement('script');sc.src=LIBS[i++];sc.onload=()=>window.Html5Qrcode?res():t();sc.onerror=()=>{sc.remove();t()};document.head.appendChild(sc)};t()});return LP}
 loadLib().catch(()=>{});
-function mk(id){const F=Html5QrcodeSupportedFormats;return new Html5Qrcode(id,{formatsToSupport:[F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E,F.ITF,F.CODE_128],experimentalFeatures:{useBarCodeDetectorIfSupported:false},verbose:false})}
+function mk(id){const F=Html5QrcodeSupportedFormats;return new Html5Qrcode(id,{formatsToSupport:[F.EAN_13,F.EAN_8],experimentalFeatures:{useBarCodeDetectorIfSupported:false},verbose:false})}
 function camErr(e){const n=(e&&e.name)||String(e||'');const d=' [info: '+location.protocol+' | aman='+(window.isSecureContext?'ya':'tidak')+' | '+(window.top!==window?'dalam-frame':'halaman-penuh')+' | '+n+']';
  if(n=='NotAllowedError'||n=='PermissionDeniedError'||n=='SecurityError')return (window.top!==window?'Kamera diblokir karena halaman ini dibuka di dalam pratinjau/aplikasi lain. Buka file di browser sendiri (Chrome) lewat alamat https://.':'Izin kamera ditolak. Ketuk ikon gembok di address bar, izinkan Kamera, lalu muat ulang halaman.')+d;
  if(n=='NotFoundError'||n=='OverconstrainedError')return 'Kamera tidak ditemukan di perangkat ini.'+d;
  if(n=='NotReadableError')return 'Kamera sedang dipakai aplikasi lain. Tutup aplikasi kamera/tab lain lalu coba lagi.'+d;
  return 'Kamera tidak bisa dibuka.'+d}
 async function startNative(m,msg){
- const det=new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e','code_128','code_39','itf']});
- const st=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
+ const det=new BarcodeDetector({formats:['ean_13','ean_8']});
+ const st=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});
  const v=document.createElement('video');v.setAttribute('playsinline','');v.muted=true;v.style.cssText='width:100%;border-radius:12px;background:#000';v.srcObject=st;
  const rd=document.getElementById('rd');rd.innerHTML='';rd.appendChild(v);await v.play();
  NV={st,run:true};msg.textContent='Arahkan ke satu barcode batang 1D bernomor. Jangan sertakan barcode lain.';
  const loop=async()=>{if(!NV||!NV.run)return;try{const r=await det.detect(v);
  // Hanya terima satu simbol barcode 1D yang terdeteksi utuh dalam satu frame.
  // Jika ada lebih dari satu barcode terlihat, abaikan frame agar tidak salah memilih.
- if(r.length===1){const val=String(r[0].rawValue||'').trim();if(/^\d+$/.test(val)){scanIn(val,m,'camera');if(m!='sell'){stopCam();return}}}
+ if(r.length===1){const val=String(r[0].rawValue||'').trim();if(camIn(val,m)&&m!='sell'){stopCam();return}}
  else if(r.length>1){msg.textContent='Terdeteksi lebih dari satu barcode. Arahkan kamera ke satu barcode saja.'}
  }catch(e){}setTimeout(loop,180)};loop()}
 async function startLib(m,msg){
  try{await loadLib()}catch(e){msg.textContent='Pustaka scan gagal dimuat (cek internet). Pakai alat scanner atau ketik barcode.';return}
- H5=mk('rd');const cfg={fps:12,qrbox:(w,h)=>({width:Math.floor(Math.min(w*.9,380)),height:Math.floor(Math.min(h*.5,160))})};
- const ok=t=>{scanIn(t,m);if(m!='sell')stopCam()};
+ H5=mk('rd');const cfg={fps:12,videoConstraints:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080}},qrbox:(w,h)=>({width:Math.floor(Math.min(w*.9,380)),height:Math.floor(Math.min(h*.5,160))})};
+ const ok=t=>{if(camIn(t,m)&&m!='sell')stopCam()};
  try{await H5.start({facingMode:'environment'},cfg,ok,()=>{});msg.textContent='Arahkan ke satu barcode batang 1D bernomor. Jangan sertakan barcode lain.'}
  catch(e){try{const c=await Html5Qrcode.getCameras();if(!c.length)throw {name:'NotFoundError'};await H5.start(c[0].id,cfg,ok,()=>{});msg.textContent='Arahkan ke satu barcode batang 1D bernomor.'}catch(e2){msg.textContent=camErr(e2&&e2.name?e2:e)}}}
 async function cam(m){CM=m;document.getElementById('camov').style.display='block';const msg=document.getElementById('cmsg');msg.textContent='Membuka kamera...';
