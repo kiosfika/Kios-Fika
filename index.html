@@ -375,7 +375,7 @@ const LIBS=['https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js
 let LP=null;
 function loadLib(){if(window.Html5Qrcode)return Promise.resolve();if(LP)return LP;LP=new Promise((res,rej)=>{let i=0;const t=()=>{if(i>=LIBS.length){LP=null;return rej(new Error('lib'))}const sc=document.createElement('script');sc.src=LIBS[i++];sc.onload=()=>window.Html5Qrcode?res():t();sc.onerror=()=>{sc.remove();t()};document.head.appendChild(sc)};t()});return LP}
 loadLib().catch(()=>{});
-function mk(id){const F=Html5QrcodeSupportedFormats;return new Html5Qrcode(id,{formatsToSupport:[F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E,F.ITF],experimentalFeatures:{useBarCodeDetectorIfSupported:false},verbose:false})}
+function mk(id){const F=Html5QrcodeSupportedFormats;return new Html5Qrcode(id,{formatsToSupport:[F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E,F.ITF,F.CODE_128],experimentalFeatures:{useBarCodeDetectorIfSupported:false},verbose:false})}
 function camErr(e){const n=(e&&e.name)||String(e||'');const d=' [info: '+location.protocol+' | aman='+(window.isSecureContext?'ya':'tidak')+' | '+(window.top!==window?'dalam-frame':'halaman-penuh')+' | '+n+']';
  if(n=='NotAllowedError'||n=='PermissionDeniedError'||n=='SecurityError')return (window.top!==window?'Kamera diblokir karena halaman ini dibuka di dalam pratinjau/aplikasi lain. Buka file di browser sendiri (Chrome) lewat alamat https://.':'Izin kamera ditolak. Ketuk ikon gembok di address bar, izinkan Kamera, lalu muat ulang halaman.')+d;
  if(n=='NotFoundError'||n=='OverconstrainedError')return 'Kamera tidak ditemukan di perangkat ini.'+d;
@@ -390,7 +390,7 @@ async function startNative(m,msg){
  const loop=async()=>{if(!NV||!NV.run)return;try{const r=await det.detect(v);
  // Hanya terima satu simbol barcode 1D yang terdeteksi utuh dalam satu frame.
  // Jika ada lebih dari satu barcode terlihat, abaikan frame agar tidak salah memilih.
- if(r.length===1){const val=String(r[0].rawValue||'').trim();if(/^\\d+$/.test(val)){scanIn(val,m,'camera');if(m!='sell'){stopCam();return}}}
+ if(r.length===1){const val=String(r[0].rawValue||'').trim();if(/^\d+$/.test(val)){scanIn(val,m,'camera');if(m!='sell'){stopCam();return}}}
  else if(r.length>1){msg.textContent='Terdeteksi lebih dari satu barcode. Arahkan kamera ke satu barcode saja.'}
  }catch(e){}setTimeout(loop,180)};loop()}
 async function startLib(m,msg){
