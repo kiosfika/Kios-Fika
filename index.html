@@ -273,9 +273,12 @@ let pages=[['dash','dash','Dashboard'],['trx','trx','Kasir'],['prod','prod','Sto
 let toastT;function toast(m,ms){const t=document.getElementById('toast');t.textContent=m;t.style.display='block';clearTimeout(toastT);toastT=setTimeout(()=>t.style.display='none',ms||1800)}
 const login_=document.getElementById('login'),app=document.getElementById('app'),u=document.getElementById('u'),pw=document.getElementById('pw'),err=document.getElementById('err');
 function nav(){document.querySelector('aside').innerHTML='<div class="br"><span class="lg">'+LOGO+'</span>Kios Fika</div>'+pages.map(p=>`<button class="nav ${S.page==p[0]?'on':''}" onclick="go('${p[0]}')">${svg(p[1])}${p[2]}</button>`).join('')}
-function go(p){S.ck=null;S.page=p;S.flash=null;S.newAcc=null;nav();render()}
+async function go(p){
+ if(CU&&cloudReady) await refreshSharedData();
+ S.ck=null;S.page=p;S.flash=null;S.newAcc=null;nav();render()
+}
 const today=()=>S.trx.filter(t=>new Date(t.t).toDateString()==new Date().toDateString()).reduce((a,t)=>a+t.tot,0);
-function render(){purgeBin();const v=document.getElementById('view'),f={dash,trx,prod,lap,set}[S.page];const ob=document.getElementById('bayar'),bv=ob?ob.value:'';v.innerHTML=f();const nb=document.getElementById('bayar');if(nb&&bv){nb.value=bv;kembali()}if(S.page=='lap')draw();const s=document.getElementById('sc');if(s&&matchMedia('(pointer:fine)').matches)s.focus();if(CU&&!applyingState)save()}
+function render(){purgeBin();const v=document.getElementById('view'),f={dash,trx,prod,lap,set}[S.page];const ob=document.getElementById('bayar'),bv=ob?ob.value:'';v.innerHTML=f();const nb=document.getElementById('bayar');if(nb&&bv){nb.value=bv;kembali()}if(S.page=='lap')draw();const s=document.getElementById('sc');if(s&&matchMedia('(pointer:fine)').matches)s.focus()}
 function dash(){return `<div class="hero pat"><div><h2>Selamat Datang<br>di Kios Fika</h2><p style="margin:0 0 12px">Kelola transaksi, stok dan laporan dengan mudah dan cepat.</p><button class="btn" style="background:#3b8bff" onclick="go('trx')">Mulai Transaksi</button></div>
 <div class="tot"><div><small>Total Penjualan Hari Ini</small><b>${rp(today())}</b><span class="bd">↑ 12%</span></div><svg width="54" height="42" viewBox="0 0 54 42" fill="#7EC8FF"><rect x="2" y="26" width="8" height="14"/><rect x="14" y="18" width="8" height="22"/><rect x="26" y="22" width="8" height="18"/><rect x="38" y="8" width="8" height="32"/></svg></div></div>
 <div class="grid">${[['trx','trx','Kasir'],['prod','prod','Stok<br>Produk'],['lap','lap','Laporan<br>Penjualan'],['set','set','Pengaturan<br>Aplikasi']].map(x=>`<div class="q" onclick="go('${x[0]}')"><span>${svg(x[1],24)}</span>${x[2]}</div>`).join('')}</div>
@@ -438,18 +441,19 @@ const SB_URL='https://tarcpegbmegcgmycrlfe.supabase.co';
 const SB_KEY='sb_publishable_5qs_5xdyARz-OtGB_7sbhg_CigPfKR3';
 let sb=null;
 let CU=null,saveTimer=null,cloudBusy=false,cloudReady=false,localDirty=false,cloudDirty=false,applyingState=false;
-let realtimeChannel=null,lastCloudUpdatedAt=null,applyingRemote=false,remotePendingRow=null;
+let realtimeChannel=null,lastCloudUpdatedAt=null,applyingRemote=false;
 const KIOS_CACHE_KEY='kios_fika_cache_v3';let lastPushedSer=null;
-function currentPayload(){return {version:3,prods:S.prods,trx:S.trx,cart:S.cart||[],productDraft:S.productDraft||{},cfg:S.cfg,cats:S.cats||[],bin:S.bin||[],profile:{name:CU?.name||'Pemilik Kios',foto:CU?.foto||'',qris:CU?.qris||'',pin:CU?.pin||'',pinSalt:CU?.pinSalt||''}}}
+function currentPayload(){return {version:4,prods:S.prods,trx:S.trx,cfg:S.cfg,cats:S.cats||[],bin:S.bin||[],profile:{name:CU?.name||'Pemilik Kios',foto:CU?.foto||'',qris:CU?.qris||'',pin:CU?.pin||'',pinSalt:CU?.pinSalt||''}}}
+function localPayload(){return {...currentPayload(),cart:S.cart||[],productDraft:S.productDraft||{}}}
 function readLocalCache(){try{const x=JSON.parse(localStorage.getItem(KIOS_CACHE_KEY)||'null');return x&&x.payload?x:null}catch(_){return null}}
-function writeLocalCache(){if(!CU)return;try{localStorage.setItem(KIOS_CACHE_KEY,JSON.stringify({savedAt:Date.now(),pending:(!cloudReady||localDirty||cloudDirty),payload:currentPayload()}))}catch(e){console.warn('Cache lokal tidak dapat disimpan:',e)}}
+function writeLocalCache(){if(!CU)return;try{localStorage.setItem(KIOS_CACHE_KEY,JSON.stringify({savedAt:Date.now(),pending:(!cloudReady||localDirty||cloudDirty),payload:localPayload()}))}catch(e){console.warn('Cache lokal tidak dapat disimpan:',e)}}
 function lsSet(){if(CU)save();return true}
 function scheduleCloudSave(){if(!CU||!cloudReady)return;clearTimeout(saveTimer);saveTimer=setTimeout(()=>pushCloudState(),650)}
 async function pushCloudState(){
  if(!CU||!cloudReady)return false;
  if(cloudBusy){cloudDirty=true;return false}
  const payload=currentPayload(),ser=JSON.stringify(payload);
- if(ser===lastPushedSer&&!localDirty){cloudDirty=false;if(remotePendingRow){const pe=remotePendingRow;remotePendingRow=null;if(!lastCloudUpdatedAt||String(pe.updated_at||'')>String(lastCloudUpdatedAt))applyRealtimeRow(pe)}return true}
+ if(ser===lastPushedSer&&!localDirty){cloudDirty=false;return true}
  cloudBusy=true;cloudDirty=false;const stamp=new Date().toISOString();
  try{
   const {data,error}=await sb.from('kios_fika_state')
@@ -466,10 +470,7 @@ async function pushCloudState(){
  }finally{
   cloudBusy=false;
   if(cloudDirty)scheduleCloudSave();
-  if(remotePendingRow&&!cloudDirty&&!localDirty){
-   const pending=remotePendingRow;remotePendingRow=null;
-   if(!lastCloudUpdatedAt||String(pending.updated_at||'')>String(lastCloudUpdatedAt))applyRealtimeRow(pending);
-  }
+
  }
 }
 function save(){
@@ -481,36 +482,62 @@ let lcTimer=null;function scheduleLocalCache(){clearTimeout(lcTimer);lcTimer=set
 setInterval(()=>{if(CU&&cloudReady&&(localDirty||cloudDirty)&&!cloudBusy)pushCloudState()},5000);
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'&&CU){writeLocalCache();if(cloudReady&&(localDirty||cloudDirty))pushCloudState()}});
 window.addEventListener('beforeunload',()=>{if(CU)writeLocalCache()});window.addEventListener('pagehide',()=>{if(CU)writeLocalCache()});
-document.addEventListener('change',e=>{if(CU&&document.getElementById('view')?.contains(e.target))save()},true);
-function captureProductDraft(){if(S.page!=='prod')return;const g=id=>document.getElementById(id);S.productDraft={...(S.productDraft||{}),active:true,b:g('pb')?.value||'',n:g('pn')?.value||'',k:g('pk')?.value||'',h:g('ph')?.value||'',s:g('ps')?.value||'',e:(()=>{const a=g('pe_d')?.value,b=g('pe_m')?.value,c=g('pe_y')?.value;return a&&b&&c?c+'-'+String(b).padStart(2,'0')+'-'+String(a).padStart(2,'0'):''})()};}
-document.addEventListener('input',e=>{if(CU&&document.getElementById('view')?.contains(e.target)&&e.target.matches('input,select,textarea')){if(S.page==='prod'&&['pb','pn','pk','ph','ps','pe_d','pe_m','pe_y'].includes(e.target.id))captureProductDraft();save()}},true);
-document.addEventListener('change',e=>{if(CU&&S.page==='prod'&&['pb','pn','pk','ph','ps','pe_d','pe_m','pe_y'].includes(e.target.id)){captureProductDraft();save()}},true);
 
+function captureProductDraft(){if(S.page!=='prod')return;const g=id=>document.getElementById(id);S.productDraft={...(S.productDraft||{}),active:true,b:g('pb')?.value||'',n:g('pn')?.value||'',k:g('pk')?.value||'',h:g('ph')?.value||'',s:g('ps')?.value||'',e:(()=>{const a=g('pe_d')?.value,b=g('pe_m')?.value,c=g('pe_y')?.value;return a&&b&&c?c+'-'+String(b).padStart(2,'0')+'-'+String(a).padStart(2,'0'):''})()};}
+document.addEventListener('input',e=>{
+ if(!CU||!document.getElementById('view')?.contains(e.target))return;
+ if(S.page==='prod'&&['pb','pn','pk','ph','ps','pe_d','pe_m','pe_y'].includes(e.target.id)){
+  captureProductDraft();scheduleLocalCache();
+ }
+},true);
+document.addEventListener('change',e=>{
+ if(CU&&S.page==='prod'&&['pb','pn','pk','ph','ps','pe_d','pe_m','pe_y'].includes(e.target.id)){
+  captureProductDraft();scheduleLocalCache();
+ }
+},true);
+
+let remoteDataPending=false;
 function applyRealtimeRow(row){
- if(!row?.payload||applyingRemote)return;
- const d=row.payload;applyingRemote=true;
+ if(!row?.payload)return;
+ const stamp=String(row.updated_at||'');
+ if(lastCloudUpdatedAt&&stamp&&stamp<=String(lastCloudUpdatedAt))return;
+ remoteDataPending=true;
+}
+async function refreshSharedData(force=false){
+ if(!sb||!CU||!cloudReady||cloudBusy)return false;
  try{
-  const draftChanged=JSON.stringify(d.productDraft||{})!==JSON.stringify(S.productDraft||{});const currentPage=(d.productDraft?.active&&draftChanged)?'prod':(S.page||'dash');
-  const activeId=document.activeElement?.id||'';
-  const activeStart=(document.activeElement&&typeof document.activeElement.selectionStart==='number')?document.activeElement.selectionStart:null;
-  const activeEnd=(document.activeElement&&typeof document.activeElement.selectionEnd==='number')?document.activeElement.selectionEnd:null;
-  CU.name=d.profile?.name||CU.name||'Pemilik Kios';
-  CU.foto=d.profile?.foto||'';CU.qris=d.profile?.qris||'';
-  CU.pin=d.profile?.pin||'';CU.pinSalt=d.profile?.pinSalt||'';
+  const {data:row,error}=await sb.from('kios_fika_state')
+   .select('payload,updated_at').eq('id',1).maybeSingle();
+  if(error)throw error;
+  if(!row?.payload)return false;
+  const stamp=String(row.updated_at||'');
+  if(!force&&!remoteDataPending&&lastCloudUpdatedAt&&stamp<=String(lastCloudUpdatedAt))return false;
+  // A local business edit must be saved before accepting a remote snapshot.
+  if(localDirty||cloudDirty){
+   await pushCloudState();
+   return false;
+  }
+  const d=row.payload;
   S.prods=Array.isArray(d.prods)?d.prods:[];
   S.trx=Array.isArray(d.trx)?d.trx:[];
-  S.cart=Array.isArray(d.cart)?d.cart:[];
-  S.productDraft=d.productDraft&&typeof d.productDraft==='object'?d.productDraft:{};
   S.cfg=d.cfg||{toko:'Kios Fika',exp:30};
   S.cats=Array.isArray(d.cats)?d.cats:[];
   S.bin=Array.isArray(d.bin)?d.bin:[];
-  S.page=currentPage;lastCloudUpdatedAt=row.updated_at||lastCloudUpdatedAt;
-  localDirty=false;cloudDirty=false;
-  setUser();nav();render();
-  if(activeId&&['pb','pn','pk','ph','ps','pe_d','pe_m','pe_y'].includes(activeId)){const el=document.getElementById(activeId);if(el){el.focus();if(activeStart!==null&&typeof el.setSelectionRange==='function')try{el.setSelectionRange(activeStart,activeEnd)}catch(_){}}}
-  writeLocalCache();try{lastPushedSer=JSON.stringify(currentPayload())}catch(_){}
-  toast('🔄 Data, formulir produk, dan keranjang diperbarui dari perangkat lain',2200);
- }finally{applyingRemote=false}
+  CU.name=d.profile?.name||CU.name||'Pemilik Kios';
+  CU.foto=d.profile?.foto||'';
+  CU.qris=d.profile?.qris||'';
+  CU.pin=d.profile?.pin||'';
+  CU.pinSalt=d.profile?.pinSalt||'';
+  lastCloudUpdatedAt=row.updated_at||lastCloudUpdatedAt;
+  remoteDataPending=false;
+  lastPushedSer=JSON.stringify(currentPayload());
+  writeLocalCache();
+  setUser();
+  return true;
+ }catch(e){
+  console.warn('Muat data terbaru tertunda:',e);
+  return false;
+ }
 }
 function subscribeRealtime(){
  if(!sb||!CU||realtimeChannel)return;
@@ -519,8 +546,7 @@ function subscribeRealtime(){
    const row=payload.new;if(!row?.payload)return;
    const stamp=String(row.updated_at||'');
    if(lastCloudUpdatedAt&&stamp&&stamp<=String(lastCloudUpdatedAt))return;
-   if(cloudBusy||cloudDirty||localDirty){remotePendingRow=row;return}
-   applyRealtimeRow(row);
+   remoteDataPending=true;
   })
   .subscribe(status=>{
    if(status==='SUBSCRIBED')console.info('Kios Fika Realtime tersambung');
@@ -564,6 +590,8 @@ async function startWithoutLogin(){
    await pushCloudState();
   }
   if(row?.updated_at)lastCloudUpdatedAt=row.updated_at;
+  try{lastPushedSer=JSON.stringify(currentPayload())}catch(_){}
+  remoteDataPending=false;
   subscribeRealtime();
   e.textContent='';
  }catch(err){
@@ -572,7 +600,7 @@ async function startWithoutLogin(){
   else{e.textContent='Gagal membuka aplikasi: '+(err.message||'Periksa koneksi dan konfigurasi Supabase.');toast('⚠️ '+e.textContent,7000)}
  }
 }
-async function enter(user,d,preview=false){applyingState=true;cloudReady=!preview;CU={id:user.id,role:'admin',email:user.email||'Sesi perangkat',name:d.profile?.name||user.user_metadata?.name||'Pemilik Kios',foto:d.profile?.foto||'',qris:d.profile?.qris||'',pin:d.profile?.pin||'',pinSalt:d.profile?.pinSalt||''};S.prods=Array.isArray(d.prods)?d.prods:[];S.trx=Array.isArray(d.trx)?d.trx:[];S.cfg=d.cfg||{toko:'Kios Fika',exp:30};S.cats=d.cats||[];S.bin=d.bin||[];S.cart=Array.isArray(d.cart)?d.cart:[];S.productDraft=d.productDraft&&typeof d.productDraft==='object'?d.productDraft:{};S.page='dash';S.flash=null;S.newAcc=null;S.useQ=false;pages=BASEPAGES.slice();if(!S.cfg.toko)S.cfg.toko='Kios Fika';login_.style.display='none';app.style.display='block';setUser();nav();go('dash');applyingState=false;if(!preview)writeLocalCache();setTimeout(()=>{const n=expList().length;if(n)toast('⚠️ '+n+' barang hampir/sudah kadaluarsa')},2600)}
+async function enter(user,d,preview=false){applyingState=true;cloudReady=!preview;CU={id:user.id,role:'admin',email:user.email||'Sesi perangkat',name:d.profile?.name||user.user_metadata?.name||'Pemilik Kios',foto:d.profile?.foto||'',qris:d.profile?.qris||'',pin:d.profile?.pin||'',pinSalt:d.profile?.pinSalt||''};S.prods=Array.isArray(d.prods)?d.prods:[];S.trx=Array.isArray(d.trx)?d.trx:[];S.cfg=d.cfg||{toko:'Kios Fika',exp:30};S.cats=d.cats||[];S.bin=d.bin||[];if(preview){S.cart=Array.isArray(d.cart)?d.cart:[];S.productDraft=d.productDraft&&typeof d.productDraft==='object'?d.productDraft:{}}S.page='dash';S.flash=null;S.newAcc=null;S.useQ=false;pages=BASEPAGES.slice();if(!S.cfg.toko)S.cfg.toko='Kios Fika';login_.style.display='none';app.style.display='block';setUser();nav();go('dash');applyingState=false;if(!preview)writeLocalCache();setTimeout(()=>{const n=expList().length;if(n)toast('⚠️ '+n+' barang hampir/sudah kadaluarsa')},2600)}
 async function hasCloudState(){const {data,error}=await sb.from('kios_fika_state').select('id').eq('id',1).maybeSingle();return !error&&!!data}
 async function logout(){await pushCloudState();await sb.auth.signOut();closeMdl();stopCam();CU=null;S.cart=[];app.style.display='none';login_.style.display='flex';document.getElementById('pw').value='';document.getElementById('u').value=''}
 function openMdl(h){document.getElementById('mdlc').innerHTML=h;document.getElementById('mdl').style.display='block'}
