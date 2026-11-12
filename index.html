@@ -306,7 +306,7 @@ function prod(){const d=S.productDraft||{};return `<div class="card" style="marg
 <div id="newcat" class="f wide" style="display:none;gap:6px;align-items:center"><input id="pkn" class="inp" style="flex:1;margin:0" placeholder="Nama kategori baru, contoh: Elektronik" onkeydown="if(event.key==='Enter'){event.preventDefault();saveCat()}"><button class="btn" onclick="saveCat()">Simpan kategori</button><button class="btn o" onclick="cancelCat()">Batal</button></div>
 </div><button class="btn" style="margin-top:12px" onclick="addP()">Tambah Produk</button></div>
 <div class="card"><h3>📦 Stok Produk</h3><div class="wrap"><table><tr><th>Barcode</th><th>Nama</th><th>Kategori</th><th>Harga</th><th>Stok</th><th>Status</th><th>Kadaluarsa</th><th>Aksi</th></tr>${prodRows()}</table></div></div>`}
-function addP(){const b=pb.value.trim(),h=num(ph.value),e=getExp();if(!pn.value.trim()||!h)return toast('Isi nama & harga');if(!pk.value||pk.value==='__new')return toast('Pilih kategori dulu');if(e===null)return toast('Kadaluarsa belum lengkap: pilih tanggal, bulan, dan tahun');if(b&&S.prods.some(p=>p.b==b))return toast('Barcode sudah terdaftar');S.prods.push({id:Math.max(0,...S.prods.map(p=>p.id))+1,b,n:pn.value.trim(),k:pk.value,h,s:+ps.value||0,min:5,e});S.productDraft={};save();render();toast('✔ Produk ditambahkan dan dibagikan ke semua perangkat')}
+async function addP(){const b=pb.value.trim(),h=num(ph.value),e=getExp();if(!pn.value.trim()||!h)return toast('Isi nama & harga');if(!pk.value||pk.value==='__new')return toast('Pilih kategori dulu');if(e===null)return toast('Kadaluarsa belum lengkap: pilih tanggal, bulan, dan tahun');if(b&&S.prods.some(p=>p.b==b))return toast('Barcode sudah terdaftar');S.prods.push({id:Math.max(0,...S.prods.map(p=>p.id))+1,b,n:pn.value.trim(),k:pk.value,h,s:+ps.value||0,min:5,e});S.productDraft={};save();render();if(cloudReady){const ok=await pushCloudState();toast(ok?'✔ Produk tersimpan online dan dapat dimuat di perangkat lain':'⚠️ Produk tersimpan lokal, tetapi belum berhasil dikirim ke database. Periksa koneksi/izin Supabase.',6000)}else toast('Produk tersimpan lokal; perangkat belum terhubung ke database.',5000)}
 function prodRows(){const qq=((document.getElementById('q')||{}).value||'').toLowerCase(),l=S.prods.filter(p=>!qq||p.n.toLowerCase().includes(qq)||String(p.b||'').includes(qq)||p.k.toLowerCase().includes(qq));
  return l.map(p=>`<tr><td>${p.b?bc(p.b):'-'}</td><td>${esc(p.n)}</td><td>${esc(p.k)}</td><td>${rp(p.h)}</td><td><b>${p.s}</b></td><td>${p.s<=0?'<b style="color:#dc2626">Habis</b>':p.s<=p.min?'<b style="color:#d97706">Menipis</b>':'<b style="color:#16a34a">Aman</b>'}</td><td>${p.e?fd(p.e):'-'}<br>${expTag(p)}</td><td><div style="display:flex;gap:6px"><button class="btn o" style="white-space:nowrap" onclick="editP(${p.id})">✏️ Edit</button><button class="btn o" style="white-space:nowrap" onclick="delP(${p.id})">🗑 Hapus</button></div></td></tr>`).join('')||'<tr><td colspan=8>Produk tidak ditemukan</td></tr>'}
 function ckHTML(){const c=S.ck;if(!c)return '';if(c.nf)return `<div style="margin-top:10px;padding:12px;border-radius:10px;background:#fee2e2;color:#7f1d1d">Barcode <b>${esc(c.nf)}</b> belum terdaftar. <button class="btn o" style="margin-top:6px" onclick="fillNew('${esc(c.nf)}')">Tambah produk baru</button></div>`;const p=S.prods.find(x=>x.id==c.id);if(!p)return '';return `<div style="margin-top:10px;padding:14px;border-radius:12px;background:#eaf1fe;color:#0b1f4d"><div style="font-weight:700">${esc(p.n)}</div><div style="font-size:12px;opacity:.8">${esc(p.k)} · ${esc(p.b||'tanpa barcode')}</div><div style="font-size:30px;font-weight:800;margin:4px 0">${rp(p.h)}</div><div style="font-size:13px">Stok: <b>${p.s}</b> · ${p.e?(expTag(p)||'Exp '+fd(p.e)):'Tanpa kadaluarsa'}</div></div>`}
@@ -504,19 +504,24 @@ function applyRealtimeRow(row){
  remoteDataPending=true;
 }
 async function refreshSharedData(force=false){
- if(!sb||!CU||!cloudReady||cloudBusy)return false;
+ if(!sb||!CU||!cloudReady)return false;
  try{
+  // Tunggu proses simpan yang sedang berjalan agar pembacaan tidak mendahului penulisan.
+  for(let i=0;cloudBusy&&i<40;i++)await new Promise(r=>setTimeout(r,100));
+  if(cloudBusy)return false;
+  // Jika perangkat ini memiliki perubahan bisnis yang belum tersimpan, simpan dahulu.
+  if(localDirty||cloudDirty){
+   const saved=await pushCloudState();
+   if(!saved)return false;
+   for(let i=0;cloudBusy&&i<40;i++)await new Promise(r=>setTimeout(r,100));
+   if(cloudBusy)return false;
+  }
   const {data:row,error}=await sb.from('kios_fika_state')
    .select('payload,updated_at').eq('id',1).maybeSingle();
   if(error)throw error;
   if(!row?.payload)return false;
   const stamp=String(row.updated_at||'');
   if(!force&&!remoteDataPending&&lastCloudUpdatedAt&&stamp<=String(lastCloudUpdatedAt))return false;
-  // A local business edit must be saved before accepting a remote snapshot.
-  if(localDirty||cloudDirty){
-   await pushCloudState();
-   return false;
-  }
   const d=row.payload;
   S.prods=Array.isArray(d.prods)?d.prods:[];
   S.trx=Array.isArray(d.trx)?d.trx:[];
