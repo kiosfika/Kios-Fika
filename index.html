@@ -468,7 +468,7 @@ let sb=null;
 let CU=null,saveTimer=null,cloudBusy=false,cloudReady=false,localDirty=false,cloudDirty=false,applyingState=false;
 let realtimeChannel=null,lastCloudUpdatedAt=null,applyingRemote=false;
 const KIOS_CACHE_KEY='kios_fika_cache_v3';let lastPushedSer=null;
-function currentPayload(){return {version:4,prods:S.prods,trx:S.trx,cfg:S.cfg,cats:S.cats||[],bin:S.bin||[],profile:{name:CU?.name||'Pemilik Kios',foto:CU?.foto||'',qris:CU?.qris||'',pin:CU?.pin||'',pinSalt:CU?.pinSalt||''}}}
+function currentPayload(){return {version:5,prods:S.prods,trx:S.trx,cfg:S.cfg,cats:S.cats||[],bin:S.bin||[],productDraft:S.productDraft||{},profile:{name:CU?.name||'Pemilik Kios',foto:CU?.foto||'',qris:CU?.qris||'',pin:CU?.pin||'',pinSalt:CU?.pinSalt||''}}}
 function localPayload(){return {...currentPayload(),cart:S.cart||[],productDraft:S.productDraft||{}}}
 function readLocalCache(){try{const x=JSON.parse(localStorage.getItem(KIOS_CACHE_KEY)||'null');return x&&x.payload?x:null}catch(_){return null}}
 function writeLocalCache(){if(!CU)return;try{localStorage.setItem(KIOS_CACHE_KEY,JSON.stringify({savedAt:Date.now(),pending:(!cloudReady||localDirty||cloudDirty),payload:localPayload()}))}catch(e){console.warn('Cache lokal tidak dapat disimpan:',e)}}
@@ -553,6 +553,7 @@ async function refreshSharedData(force=false){
   S.cfg=d.cfg||{toko:'Kios Fika',exp:30};
   S.cats=Array.isArray(d.cats)?d.cats:[];
   S.bin=Array.isArray(d.bin)?d.bin:[];
+  if(d.productDraft&&typeof d.productDraft==='object')S.productDraft=d.productDraft;
   CU.name=d.profile?.name||CU.name||'Pemilik Kios';
   CU.foto=d.profile?.foto||'';
   CU.qris=d.profile?.qris||'';
@@ -577,6 +578,16 @@ function subscribeRealtime(){
    const stamp=String(row.updated_at||'');
    if(lastCloudUpdatedAt&&stamp&&stamp<=String(lastCloudUpdatedAt))return;
    remoteDataPending=true;
+   refreshSharedData().then(changed=>{
+    if(!changed)return;
+    if(S.page==='prod'&&S.productDraft?.active&&S.productDraft?.b){
+     const pb=document.getElementById('pb');
+     if(pb&&(!pb.value.trim()||pb.value.trim()===String(S.productDraft.b)))pb.value=String(S.productDraft.b);
+     const pn=document.getElementById('pn');
+     if(pn&&!pn.value.trim()&&S.productDraft.n)pn.value=S.productDraft.n;
+     toast('✔ Hasil scan barcode diterima dari perangkat lain: '+S.productDraft.b,4500);
+    }
+   });
   })
   .subscribe(status=>{
    if(status==='SUBSCRIBED')console.info('Kios Fika Realtime tersambung');
@@ -630,7 +641,7 @@ async function startWithoutLogin(){
   else{e.textContent='Gagal membuka aplikasi: '+(err.message||'Periksa koneksi dan konfigurasi Supabase.');toast('⚠️ '+e.textContent,7000)}
  }
 }
-async function enter(user,d,preview=false){applyingState=true;cloudReady=!preview;CU={id:user.id,role:'admin',email:user.email||'Sesi perangkat',name:d.profile?.name||user.user_metadata?.name||'Pemilik Kios',foto:d.profile?.foto||'',qris:d.profile?.qris||'',pin:d.profile?.pin||'',pinSalt:d.profile?.pinSalt||''};S.prods=Array.isArray(d.prods)?d.prods:[];S.trx=Array.isArray(d.trx)?d.trx:[];S.cfg=d.cfg||{toko:'Kios Fika',exp:30};S.cats=d.cats||[];S.bin=d.bin||[];if(preview){S.cart=Array.isArray(d.cart)?d.cart:[];S.productDraft=d.productDraft&&typeof d.productDraft==='object'?d.productDraft:{}}S.page='dash';S.flash=null;S.newAcc=null;S.useQ=false;pages=BASEPAGES.slice();if(!S.cfg.toko)S.cfg.toko='Kios Fika';login_.style.display='none';app.style.display='block';setUser();nav();go('dash');applyingState=false;if(!preview)writeLocalCache();setTimeout(()=>{const n=expList().length;if(n)toast('⚠️ '+n+' barang hampir/sudah kadaluarsa')},2600)}
+async function enter(user,d,preview=false){applyingState=true;cloudReady=!preview;CU={id:user.id,role:'admin',email:user.email||'Sesi perangkat',name:d.profile?.name||user.user_metadata?.name||'Pemilik Kios',foto:d.profile?.foto||'',qris:d.profile?.qris||'',pin:d.profile?.pin||'',pinSalt:d.profile?.pinSalt||''};S.prods=Array.isArray(d.prods)?d.prods:[];S.trx=Array.isArray(d.trx)?d.trx:[];S.cfg=d.cfg||{toko:'Kios Fika',exp:30};S.cats=d.cats||[];S.bin=d.bin||[];S.productDraft=d.productDraft&&typeof d.productDraft==='object'?d.productDraft:{};if(preview){S.cart=Array.isArray(d.cart)?d.cart:[]}S.page='dash';S.flash=null;S.newAcc=null;S.useQ=false;pages=BASEPAGES.slice();if(!S.cfg.toko)S.cfg.toko='Kios Fika';login_.style.display='none';app.style.display='block';setUser();nav();go('dash');applyingState=false;if(!preview)writeLocalCache();setTimeout(()=>{const n=expList().length;if(n)toast('⚠️ '+n+' barang hampir/sudah kadaluarsa')},2600)}
 async function hasCloudState(){const {data,error}=await sb.from('kios_fika_state').select('id').eq('id',1).maybeSingle();return !error&&!!data}
 async function logout(){await pushCloudState();await sb.auth.signOut();closeMdl();stopCam();CU=null;S.cart=[];app.style.display='none';login_.style.display='flex';document.getElementById('pw').value='';document.getElementById('u').value=''}
 function openMdl(h){document.getElementById('mdlc').innerHTML=h;document.getElementById('mdl').style.display='block'}
