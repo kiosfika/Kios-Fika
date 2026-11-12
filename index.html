@@ -273,9 +273,20 @@ let pages=[['dash','dash','Dashboard'],['trx','trx','Kasir'],['prod','prod','Sto
 let toastT;function toast(m,ms){const t=document.getElementById('toast');t.textContent=m;t.style.display='block';clearTimeout(toastT);toastT=setTimeout(()=>t.style.display='none',ms||1800)}
 const login_=document.getElementById('login'),app=document.getElementById('app'),u=document.getElementById('u'),pw=document.getElementById('pw'),err=document.getElementById('err');
 function nav(){document.querySelector('aside').innerHTML='<div class="br"><span class="lg">'+LOGO+'</span>Kios Fika</div>'+pages.map(p=>`<button class="nav ${S.page==p[0]?'on':''}" onclick="go('${p[0]}')">${svg(p[1])}${p[2]}</button>`).join('')}
-function go(p){S.ck=null;S.page=p;S.flash=null;S.newAcc=null;nav();render()}
+let navigationRequest=0;
+async function go(p){
+ // Tampilkan menu segera. Jangan menunggu jaringan sebelum mengganti halaman,
+ // agar pemuatan awal Dashboard tidak menimpa halaman Stok Produk yang baru dipilih.
+ const request=++navigationRequest;
+ S.ck=null;S.page=p;S.flash=null;S.newAcc=null;nav();render();
+ if(CU&&cloudReady){
+  const changed=await refreshSharedData();
+  // Render ulang hanya jika pengguna masih berada di menu yang sama.
+  if(changed&&request===navigationRequest&&S.page===p)render();
+ }
+}
 const today=()=>S.trx.filter(t=>new Date(t.t).toDateString()==new Date().toDateString()).reduce((a,t)=>a+t.tot,0);
-function render(){purgeBin();const v=document.getElementById('view'),f={dash,trx,prod,lap,set}[S.page];const ob=document.getElementById('bayar'),bv=ob?ob.value:'';v.innerHTML=f();const nb=document.getElementById('bayar');if(nb&&bv){nb.value=bv;kembali()}if(S.page=='lap')draw();const s=document.getElementById('sc');if(s&&matchMedia('(pointer:fine)').matches)s.focus();if(CU&&!applyingState)save()}
+function render(){purgeBin();const v=document.getElementById('view'),f={dash,trx,prod,lap,set}[S.page];const ob=document.getElementById('bayar'),bv=ob?ob.value:'';v.innerHTML=f();const nb=document.getElementById('bayar');if(nb&&bv){nb.value=bv;kembali()}if(S.page=='lap')draw();const s=document.getElementById('sc');if(s&&matchMedia('(pointer:fine)').matches)s.focus()}
 function dash(){return `<div class="hero pat"><div><h2>Selamat Datang<br>di Kios Fika</h2><p style="margin:0 0 12px">Kelola transaksi, stok dan laporan dengan mudah dan cepat.</p><button class="btn" style="background:#3b8bff" onclick="go('trx')">Mulai Transaksi</button></div>
 <div class="tot"><div><small>Total Penjualan Hari Ini</small><b>${rp(today())}</b><span class="bd">↑ 12%</span></div><svg width="54" height="42" viewBox="0 0 54 42" fill="#7EC8FF"><rect x="2" y="26" width="8" height="14"/><rect x="14" y="18" width="8" height="22"/><rect x="26" y="22" width="8" height="18"/><rect x="38" y="8" width="8" height="32"/></svg></div></div>
 <div class="grid">${[['trx','trx','Kasir'],['prod','prod','Stok<br>Produk'],['lap','lap','Laporan<br>Penjualan'],['set','set','Pengaturan<br>Aplikasi']].map(x=>`<div class="q" onclick="go('${x[0]}')"><span>${svg(x[1],24)}</span>${x[2]}</div>`).join('')}</div>
@@ -288,9 +299,9 @@ return `<div class="pos"><div><div class="card" style="margin-top:0;margin-botto
 <div class="card" style="margin-top:0;height:fit-content"><h3>🛒 Keranjang</h3>${S.cart.map(c=>`<div class="row"><span>${c.n}<br><small>${rp(c.h)}</small></span><span class="qty"><button onclick="chg(${c.id},-1)">−</button> ${c.q} <button onclick="chg(${c.id},1)">+</button></span></div>`).join('')||'<small>Keranjang kosong</small>'}
 <hr style="border:0;border-top:1px solid var(--bd)"><div class="row"><span>Subtotal</span><span>${rp(sub)}</span></div><div class="row"><b>Total</b><b>${rp(sub)}</b></div>
 <label style="display:flex;align-items:center;gap:8px;margin:8px 0;font-weight:600;cursor:pointer"><input type="checkbox" ${S.useQ?'checked':''} onchange="S.useQ=this.checked;render()" style="width:18px;height:18px"> Bayar dengan QRIS</label>${S.useQ?'<small style="display:block;margin-bottom:8px;color:var(--m)">Tekan Bayar untuk menampilkan QRIS toko.</small>':'<input id="bayar" inputmode="numeric" class="inp" placeholder="Uang diterima (Rp)" oninput="fmtRp(this);kembali()"><small id="kmb" style="display:block;margin-bottom:6px;font-weight:600"></small>'}<button class="btn" style="width:100%" onclick="pay()">Bayar</button><button class="btn o" style="width:100%;margin-top:6px" onclick="S.cart=[];save();render()">Kosongkan</button></div></div>`}
-function add(id){const p=S.prods.find(x=>x.id==id),c=S.cart.find(x=>x.id==id);if(!p)return toast('Produk tidak ditemukan');if(ex(p)<0)return toast('Barang kadaluarsa, tidak bisa dijual');if((c?c.q:0)>=p.s)return toast('Stok tidak cukup');c?c.q++:S.cart.push({id,n:p.n,h:p.h,q:1});saveLocal();render()}
-function chg(id,d){const c=S.cart.find(x=>x.id==id),p=S.prods.find(x=>x.id==id);if(!c||!p)return;if(d>0&&c.q>=p.s)return toast('Stok tidak cukup');c.q+=d;if(c.q<=0)S.cart=S.cart.filter(x=>x!==c);saveLocal();render()}
-function pay(){if(S.useQ)return payQ();if(!S.cart.length)return toast('Keranjang kosong');if(cartGuard())return;const sub=S.cart.reduce((a,c)=>a+c.h*c.q,0),tot=sub,by=num(document.getElementById('bayar').value);if(by<tot)return toast('Uang kurang');
+function add(id){const p=S.prods.find(x=>x.id==id),c=S.cart.find(x=>x.id==id);if(!p)return toast('Produk tidak ditemukan');if(ex(p)<0)return toast('Barang kadaluarsa, tidak bisa dijual');if((c?c.q:0)>=p.s)return toast('Stok tidak cukup');c?c.q++:S.cart.push({id,n:p.n,h:p.h,q:1});save();render()}
+function chg(id,d){const c=S.cart.find(x=>x.id==id),p=S.prods.find(x=>x.id==id);if(!c||!p)return;if(d>0&&c.q>=p.s)return toast('Stok tidak cukup');c.q+=d;if(c.q<=0)S.cart=S.cart.filter(x=>x!==c);save();render()}
+function pay(){if(S.useQ)return payQ();if(!S.cart.length)return toast('Keranjang kosong');const sub=S.cart.reduce((a,c)=>a+c.h*c.q,0),tot=sub,by=num(document.getElementById('bayar').value);if(by<tot)return toast('Uang kurang');
 S.cart.forEach(c=>S.prods.find(p=>p.id==c.id).s-=c.q);const r=mkTrx('Tunai',tot,by);S.cart=[];save();document.getElementById('bayar').value='';render();showStruk(r)}
 function prod(){const d=S.productDraft||{};return `<div class="card" style="margin-top:0"><h3>🔍 Cek Harga Barang</h3><div style="display:flex;gap:6px;align-items:center"><input id="ck" class="inp" style="flex:1;min-width:0;margin:0" placeholder="Scan / ketik barcode lalu Enter" onkeydown="if(event.key===\'Enter\'){event.preventDefault();scanIn(this.value,\'cek\',\'kbd\');this.value=\'\'}"><button class="btn" onclick="cam(\'cek\')">📷 Scan</button></div><div id="ckr">${ckHTML()}</div></div>
 <div class="card"><h3>Tambah Produk</h3><div class="fg">
@@ -303,14 +314,31 @@ function prod(){const d=S.productDraft||{};return `<div class="card" style="marg
 <div id="newcat" class="f wide" style="display:none;gap:6px;align-items:center"><input id="pkn" class="inp" style="flex:1;margin:0" placeholder="Nama kategori baru, contoh: Elektronik" onkeydown="if(event.key==='Enter'){event.preventDefault();saveCat()}"><button class="btn" onclick="saveCat()">Simpan kategori</button><button class="btn o" onclick="cancelCat()">Batal</button></div>
 </div><button class="btn" style="margin-top:12px" onclick="addP()">Tambah Produk</button></div>
 <div class="card"><h3>📦 Stok Produk</h3><div class="wrap"><table><tr><th>Barcode</th><th>Nama</th><th>Kategori</th><th>Harga</th><th>Stok</th><th>Status</th><th>Kadaluarsa</th><th>Aksi</th></tr>${prodRows()}</table></div></div>`}
-function addP(){const b=pb.value.trim(),h=num(ph.value),e=getExp();if(!pn.value.trim()||!h)return toast('Isi nama & harga');if(!pk.value||pk.value==='__new')return toast('Pilih kategori dulu');if(e===null)return toast('Kadaluarsa belum lengkap: pilih tanggal, bulan, dan tahun');if(b&&S.prods.some(p=>p.b==b))return toast('Barcode sudah terdaftar');S.prods.push({id:Math.max(0,...S.prods.map(p=>p.id))+1,b,n:pn.value.trim(),k:pk.value,h,s:+ps.value||0,min:5,e});S.productDraft={};save();render();toast('✔ Produk ditambahkan dan dibagikan ke semua perangkat')}
+async function addP(){
+ // Ambil nilai formulir sebelum mengambil data terbaru dari server.
+ const b=document.getElementById('pb')?.value.trim()||'',n=document.getElementById('pn')?.value.trim()||'',k=document.getElementById('pk')?.value||'',h=num(document.getElementById('ph')?.value),stok=+(document.getElementById('ps')?.value||0),e=getExp();
+ if(!n||!h)return toast('Isi nama & harga');
+ if(!k||k==='__new')return toast('Pilih kategori dulu');
+ if(e===null)return toast('Kadaluarsa belum lengkap: pilih tanggal, bulan, dan tahun');
+ // Tarik daftar terkini sebelum memeriksa barcode dan menentukan nomor produk.
+ if(cloudReady&&sb)await refreshSharedData(true);
+ if(b&&S.prods.some(p=>String(p.b||'').trim()===b))return toast('Barcode sudah terdaftar');
+ const id=Math.max(0,...S.prods.map(p=>Number(p.id)||0))+1;
+ S.prods.push({id,b,n,k,h,s:stok,min:5,e});
+ S.productDraft={};save();render();
+ if(cloudReady){
+  const ok=await pushCloudState();
+  if(ok)toast('✔ Produk tersimpan di database. Buka menu Stok Produk di perangkat lain untuk memuatnya.',6000);
+  else toast('⚠️ Produk belum tersinkron ke database. Periksa izin/RLS Supabase dan koneksi internet.',7000);
+ }else toast('Produk tersimpan lokal; perangkat belum terhubung ke database.',5000)
+}
 function prodRows(){const qq=((document.getElementById('q')||{}).value||'').toLowerCase(),l=S.prods.filter(p=>!qq||p.n.toLowerCase().includes(qq)||String(p.b||'').includes(qq)||p.k.toLowerCase().includes(qq));
  return l.map(p=>`<tr><td>${p.b?bc(p.b):'-'}</td><td>${esc(p.n)}</td><td>${esc(p.k)}</td><td>${rp(p.h)}</td><td><b>${p.s}</b></td><td>${p.s<=0?'<b style="color:#dc2626">Habis</b>':p.s<=p.min?'<b style="color:#d97706">Menipis</b>':'<b style="color:#16a34a">Aman</b>'}</td><td>${p.e?fd(p.e):'-'}<br>${expTag(p)}</td><td><div style="display:flex;gap:6px"><button class="btn o" style="white-space:nowrap" onclick="editP(${p.id})">✏️ Edit</button><button class="btn o" style="white-space:nowrap" onclick="delP(${p.id})">🗑 Hapus</button></div></td></tr>`).join('')||'<tr><td colspan=8>Produk tidak ditemukan</td></tr>'}
 function ckHTML(){const c=S.ck;if(!c)return '';if(c.nf)return `<div style="margin-top:10px;padding:12px;border-radius:10px;background:#fee2e2;color:#7f1d1d">Barcode <b>${esc(c.nf)}</b> belum terdaftar. <button class="btn o" style="margin-top:6px" onclick="fillNew('${esc(c.nf)}')">Tambah produk baru</button></div>`;const p=S.prods.find(x=>x.id==c.id);if(!p)return '';return `<div style="margin-top:10px;padding:14px;border-radius:12px;background:#eaf1fe;color:#0b1f4d"><div style="font-weight:700">${esc(p.n)}</div><div style="font-size:12px;opacity:.8">${esc(p.k)} · ${esc(p.b||'tanpa barcode')}</div><div style="font-size:30px;font-weight:800;margin:4px 0">${rp(p.h)}</div><div style="font-size:13px">Stok: <b>${p.s}</b> · ${p.e?(expTag(p)||'Exp '+fd(p.e)):'Tanpa kadaluarsa'}</div></div>`}
-function fillNew(c){S.productDraft=S.productDraft||{};S.productDraft.b=String(c||'');S.productDraft.active=true;saveLocal();const b=document.getElementById('pb');if(b)b.value=c;const n=document.getElementById('pn');if(n)n.focus()}
+function fillNew(c){S.productDraft=S.productDraft||{};S.productDraft.b=String(c||'');S.productDraft.active=true;save();const b=document.getElementById('pb');if(b)b.value=c;const n=document.getElementById('pn');if(n)n.focus()}
 function delP(id){const p=S.prods.find(x=>x.id==id);if(!p||!confirm('Hapus produk "'+p.n+'"?'))return;S.prods=S.prods.filter(x=>x.id!=id);S.cart=S.cart.filter(c=>c.id!=id);save();render();toast('Produk dihapus')}
 function editP(id){const p=S.prods.find(x=>x.id==id);if(!p)return;openMdl(`<h3 style="margin-top:0">✏️ Edit Produk</h3><div class="fg" style="grid-template-columns:1fr"><div class="f"><small>Barcode</small><input id="ed_b" class="inp" value="${esc(p.b||'')}"></div><div class="f"><small>Nama barang</small><input id="ed_n" class="inp" value="${esc(p.n)}"></div><div class="f"><small>Kategori</small><select id="ed_k" class="inp">${catList().map(c=>`<option value="${esc(c)}" ${c===p.k?'selected':''}>${esc(c)}</option>`).join('')}</select></div><div class="f"><small>Harga (Rp)</small><input id="ed_h" class="inp" inputmode="numeric" value="Rp ${n2(p.h)}" oninput="fmtRp(this)"></div><div class="f"><small>Stok</small><input id="ed_s" type="number" min="0" class="inp" value="${p.s}"></div><div class="f"><small>Kadaluarsa (tanggal – bulan – tahun)</small>${expPick('ed',p.e||'')}</div></div><div style="display:flex;gap:8px;margin-top:14px"><button class="btn" style="flex:1" onclick="saveP(${id})">Simpan</button><button class="btn o" onclick="closeMdl()">Batal</button></div>`)}
-function saveP(id){const p=S.prods.find(x=>x.id==id),g=i=>document.getElementById(i);if(!p){closeMdl();render();return toast('Produk ini sudah dihapus dari perangkat lain');}const b=g('ed_b').value.trim(),n=g('ed_n').value.trim(),h=num(g('ed_h').value),sv=g('ed_s').value.trim(),e=getExp('ed');
+function saveP(id){const p=S.prods.find(x=>x.id==id),g=i=>document.getElementById(i),b=g('ed_b').value.trim(),n=g('ed_n').value.trim(),h=num(g('ed_h').value),sv=g('ed_s').value.trim(),e=getExp('ed');
  if(!n||!h)return toast('Isi nama & harga');if(!/^\d+$/.test(sv))return toast('Stok harus angka (0 atau lebih)');if(e===null)return toast('Kadaluarsa belum lengkap: pilih tanggal, bulan, dan tahun');if(b&&S.prods.some(x=>x.b==b&&x.id!=id))return toast('Barcode sudah dipakai produk lain');
  const a=p.s;p.b=b;p.n=n;p.k=g('ed_k').value;p.h=h;p.s=+sv;p.e=e;S.cart.forEach(c=>{if(c.id==id){c.n=n;c.h=h;if(c.q>p.s)c.q=p.s}});S.cart=S.cart.filter(c=>c.q>0);
  closeMdl();save();render();toast('✔ Produk diperbarui'+(a!==p.s?' · stok '+a+' → '+p.s:''))}
@@ -367,16 +395,16 @@ function camIn(raw,m){const c=String(raw).trim(),msg=document.getElementById('cm
  if(CC.n<3)return false;CC={c:'',n:0,t:0};scanIn(c,m,'camera');return true}
 function scanIn(code,m,src){code=String(code).trim();if(!okScan(code,src))return;onCode(code,m)}
 function onCode(code,m){const msg=document.getElementById('cmsg');
- if(m=='sell'){const p=S.prods.find(x=>x.b&&fp(x.b)==fp(code));if(!p){if(document.getElementById('camov').style.display==='block'){if(msg)msg.textContent='⚠ Barcode '+code+' belum terdaftar';toast('Barcode '+code+' belum terdaftar');return}S.productDraft=S.productDraft||{};S.productDraft.b=code;S.productDraft.active=true;saveLocal();go('prod');setTimeout(()=>{const pb=document.getElementById('pb');if(pb){pb.value=code;document.getElementById('pn').focus()}},50);toast('Barcode '+code+' belum terdaftar, formulir produk dibuka');return}add(p.id);if(msg)msg.textContent='✔ '+p.n+' ditambahkan · '+S.cart.reduce((a,c)=>a+c.q,0)+' item di keranjang. Scan barang berikutnya atau tekan Tutup.'}
+ if(m=='sell'){const p=S.prods.find(x=>x.b&&fp(x.b)==fp(code));if(!p){if(document.getElementById('camov').style.display==='block'){if(msg)msg.textContent='⚠ Barcode '+code+' belum terdaftar';toast('Barcode '+code+' belum terdaftar');return}S.productDraft=S.productDraft||{};S.productDraft.b=code;S.productDraft.active=true;save();go('prod');setTimeout(()=>{const pb=document.getElementById('pb');if(pb){pb.value=code;document.getElementById('pn').focus()}},50);toast('Barcode '+code+' belum terdaftar, formulir produk dibagikan ke perangkat lain');return}add(p.id);if(msg)msg.textContent='✔ '+p.n+' ditambahkan · '+S.cart.reduce((a,c)=>a+c.q,0)+' item di keranjang. Scan barang berikutnya atau tekan Tutup.'}
  else if(m=='cek'){const p=S.prods.find(x=>x.b&&fp(x.b)==fp(code));S.ck=p?{id:p.id}:{nf:code};const r=document.getElementById('ckr');if(r)r.innerHTML=ckHTML()}
- else{const o=S.prods.find(x=>x.b&&fp(x.b)==fp(code));if(o){toast('Barcode sudah terdaftar: '+o.n);return}S.productDraft=S.productDraft||{};S.productDraft.b=code;S.productDraft.active=true;saveLocal();const pb=document.getElementById('pb');if(!pb)return;pb.value=code;document.getElementById('pn').focus();toast('Barcode terisi: '+code)}}
+ else{const o=S.prods.find(x=>x.b&&fp(x.b)==fp(code));if(o){toast('Barcode sudah terdaftar: '+o.n);return}S.productDraft=S.productDraft||{};S.productDraft.b=code;S.productDraft.active=true;save();const pb=document.getElementById('pb');if(!pb)return;pb.value=code;document.getElementById('pn').focus();toast('Barcode tersimpan bersama: '+code)}}
 /* ===== Scanner fisik (USB/Bluetooth) di laptop: aktif di halaman mana pun, tidak perlu klik kolom dulu ===== */
 let KB='',KT=0;
 document.addEventListener('keydown',e=>{
  if(!document.getElementById('app')||document.getElementById('app').style.display!=='block')return;
  const el=document.activeElement;if(el&&/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))return;
  const n=Date.now();if(n-KT>80)KB='';KT=n;
- if(e.key==='Enter'){if(KB.length>=6){e.preventDefault();const c=KB;KB='';const m=S.page=='prod'?'cek':'sell';if(S.page!='prod'&&S.page!='trx')go('trx');scanIn(c,m,'kbd')}KB='';return}
+ if(e.key==='Enter'){if(KB.length>=6){e.preventDefault();const c=KB;KB='';const m=S.page==='prod'?'add':'sell';if(S.page!=='prod'&&S.page!=='trx')go('trx');scanIn(c,m,'kbd')}KB='';return}
  if(e.key.length===1&&!e.ctrlKey&&!e.altKey&&!e.metaKey)KB+=e.key});
 /* ===== Kamera HP & webcam laptop ===== */
 const LIBS=['https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js','https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js','https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js'];
@@ -438,10 +466,9 @@ const SB_URL='https://tarcpegbmegcgmycrlfe.supabase.co';
 const SB_KEY='sb_publishable_5qs_5xdyARz-OtGB_7sbhg_CigPfKR3';
 let sb=null;
 let CU=null,saveTimer=null,cloudBusy=false,cloudReady=false,localDirty=false,cloudDirty=false,applyingState=false;
-let realtimeChannel=null,lastCloudUpdatedAt=null,applyingRemote=false,remotePendingRow=null;
+let realtimeChannel=null,lastCloudUpdatedAt=null,applyingRemote=false;
 const KIOS_CACHE_KEY='kios_fika_cache_v3';let lastPushedSer=null;
 function currentPayload(){return {version:4,prods:S.prods,trx:S.trx,cfg:S.cfg,cats:S.cats||[],bin:S.bin||[],profile:{name:CU?.name||'Pemilik Kios',foto:CU?.foto||'',qris:CU?.qris||'',pin:CU?.pin||'',pinSalt:CU?.pinSalt||''}}}
-/* Keranjang & draf formulir hanya disimpan di perangkat ini (tidak dikirim ke cloud) */
 function localPayload(){return {...currentPayload(),cart:S.cart||[],productDraft:S.productDraft||{}}}
 function readLocalCache(){try{const x=JSON.parse(localStorage.getItem(KIOS_CACHE_KEY)||'null');return x&&x.payload?x:null}catch(_){return null}}
 function writeLocalCache(){if(!CU)return;try{localStorage.setItem(KIOS_CACHE_KEY,JSON.stringify({savedAt:Date.now(),pending:(!cloudReady||localDirty||cloudDirty),payload:localPayload()}))}catch(e){console.warn('Cache lokal tidak dapat disimpan:',e)}}
@@ -451,7 +478,7 @@ async function pushCloudState(){
  if(!CU||!cloudReady)return false;
  if(cloudBusy){cloudDirty=true;return false}
  const payload=currentPayload(),ser=JSON.stringify(payload);
- if(ser===lastPushedSer&&!localDirty){cloudDirty=false;if(remotePendingRow){const pe=remotePendingRow;remotePendingRow=null;if(!lastCloudUpdatedAt||String(pe.updated_at||'')>String(lastCloudUpdatedAt))applyRemoteData(pe,false)}return true}
+ if(ser===lastPushedSer&&!localDirty){cloudDirty=false;return true}
  cloudBusy=true;cloudDirty=false;const stamp=new Date().toISOString();
  try{
   const {data,error}=await sb.from('kios_fika_state')
@@ -468,10 +495,7 @@ async function pushCloudState(){
  }finally{
   cloudBusy=false;
   if(cloudDirty)scheduleCloudSave();
-  if(remotePendingRow&&!cloudDirty&&!localDirty){
-   const pending=remotePendingRow;remotePendingRow=null;
-   if(!lastCloudUpdatedAt||String(pending.updated_at||'')>String(lastCloudUpdatedAt))applyRemoteData(pending,false);
-  }
+
  }
 }
 function save(){
@@ -479,54 +503,72 @@ function save(){
  if(!cloudReady)localDirty=true;else cloudDirty=true;
  scheduleLocalCache();if(cloudReady)scheduleCloudSave();
 }
-function saveLocal(){if(!CU||applyingState||applyingRemote)return;scheduleLocalCache()}
 let lcTimer=null;function scheduleLocalCache(){clearTimeout(lcTimer);lcTimer=setTimeout(()=>{try{writeLocalCache()}catch(_){}},500)}
 setInterval(()=>{if(CU&&cloudReady&&(localDirty||cloudDirty)&&!cloudBusy)pushCloudState()},5000);
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'&&CU){writeLocalCache();if(cloudReady&&(localDirty||cloudDirty))pushCloudState()}});
 window.addEventListener('beforeunload',()=>{if(CU)writeLocalCache()});window.addEventListener('pagehide',()=>{if(CU)writeLocalCache()});
-document.addEventListener('change',e=>{if(CU&&document.getElementById('view')?.contains(e.target))saveLocal()},true);
-function captureProductDraft(){if(S.page!=='prod')return;const g=id=>document.getElementById(id);S.productDraft={...(S.productDraft||{}),active:true,b:g('pb')?.value||'',n:g('pn')?.value||'',k:g('pk')?.value||'',h:g('ph')?.value||'',s:g('ps')?.value||'',e:(()=>{const a=g('pe_d')?.value,b=g('pe_m')?.value,c=g('pe_y')?.value;return a&&b&&c?c+'-'+String(b).padStart(2,'0')+'-'+String(a).padStart(2,'0'):''})()};}
-document.addEventListener('input',e=>{if(CU&&document.getElementById('view')?.contains(e.target)&&e.target.matches('input,select,textarea')){if(S.page==='prod'&&['pb','pn','pk','ph','ps','pe_d','pe_m','pe_y'].includes(e.target.id))captureProductDraft();saveLocal()}},true);
-document.addEventListener('change',e=>{if(CU&&S.page==='prod'&&['pb','pn','pk','ph','ps','pe_d','pe_m','pe_y'].includes(e.target.id)){captureProductDraft();saveLocal()}},true);
 
-/* Data bersama (produk, transaksi, stok, kategori, pengaturan, profil) diperbarui diam-diam di memori.
-   Tampilan, halaman aktif, keyboard, kolom isian, keranjang dan draf formulir TIDAK disentuh.
-   Data baru tampil saat pengguna sendiri membuka/menyegarkan menu terkait. */
-let cartStale=false;
-function pruneCart(){let ch=false;S.cart=(S.cart||[]).filter(c=>{const p=S.prods.find(x=>x.id==c.id);if(!p){ch=true;return false}if(c.q>p.s){c.q=p.s;ch=true}if(c.n!==p.n||c.h!==p.h){c.n=p.n;c.h=p.h;ch=true}return c.q>0});return ch}
-function cartGuard(inModal){const ch=pruneCart()||cartStale;cartStale=false;if(!ch)return false;if(inModal)closeMdl();render();toast('⚠️ Keranjang disesuaikan karena stok/harga produk berubah. Periksa total, lalu bayar lagi.',4500);return true}
-function applyRemoteData(row,refresh){
- if(!row?.payload||applyingRemote||!CU)return;
- const d=row.payload;applyingRemote=true;
+function captureProductDraft(){if(S.page!=='prod')return;const g=id=>document.getElementById(id);S.productDraft={...(S.productDraft||{}),active:true,b:g('pb')?.value||'',n:g('pn')?.value||'',k:g('pk')?.value||'',h:g('ph')?.value||'',s:g('ps')?.value||'',e:(()=>{const a=g('pe_d')?.value,b=g('pe_m')?.value,c=g('pe_y')?.value;return a&&b&&c?c+'-'+String(b).padStart(2,'0')+'-'+String(a).padStart(2,'0'):''})()};}
+document.addEventListener('input',e=>{
+ if(!CU||!document.getElementById('view')?.contains(e.target))return;
+ if(S.page==='prod'&&['pb','pn','pk','ph','ps','pe_d','pe_m','pe_y'].includes(e.target.id)){
+  captureProductDraft();scheduleLocalCache();
+ }
+},true);
+document.addEventListener('change',e=>{
+ if(CU&&S.page==='prod'&&['pb','pn','pk','ph','ps','pe_d','pe_m','pe_y'].includes(e.target.id)){
+  captureProductDraft();scheduleLocalCache();
+ }
+},true);
+
+let remoteDataPending=false;
+function applyRealtimeRow(row){
+ if(!row?.payload)return;
+ const stamp=String(row.updated_at||'');
+ if(lastCloudUpdatedAt&&stamp&&stamp<=String(lastCloudUpdatedAt))return;
+ remoteDataPending=true;
+}
+async function refreshSharedData(force=false){
+ if(!sb||!CU||!cloudReady)return false;
  try{
-  CU.name=d.profile?.name||CU.name||'Pemilik Kios';
-  CU.foto=d.profile?.foto||'';CU.qris=d.profile?.qris||'';
-  CU.pin=d.profile?.pin||'';CU.pinSalt=d.profile?.pinSalt||'';
+  // Tunggu proses simpan yang sedang berjalan agar pembacaan tidak mendahului penulisan.
+  for(let i=0;cloudBusy&&i<40;i++)await new Promise(r=>setTimeout(r,100));
+  if(cloudBusy)return false;
+  // Jika perangkat ini memiliki perubahan bisnis yang belum tersimpan, simpan dahulu.
+  if(localDirty||cloudDirty){
+   const saved=await pushCloudState();
+   if(!saved)return false;
+   for(let i=0;cloudBusy&&i<40;i++)await new Promise(r=>setTimeout(r,100));
+   if(cloudBusy)return false;
+  }
+  const {data:row,error}=await sb.from('kios_fika_state')
+   .select('payload,updated_at').eq('id',1).maybeSingle();
+  if(error)throw error;
+  if(!row?.payload)return false;
+  const stamp=String(row.updated_at||'');
+  if(!force&&!remoteDataPending&&lastCloudUpdatedAt&&stamp<=String(lastCloudUpdatedAt))return false;
+  const d=row.payload;
   S.prods=Array.isArray(d.prods)?d.prods:[];
   S.trx=Array.isArray(d.trx)?d.trx:[];
-  S.cfg=d.cfg||{toko:'Kios Fika',exp:30};if(!S.cfg.toko)S.cfg.toko='Kios Fika';
+  S.cfg=d.cfg||{toko:'Kios Fika',exp:30};
   S.cats=Array.isArray(d.cats)?d.cats:[];
   S.bin=Array.isArray(d.bin)?d.bin:[];
-  if(pruneCart())cartStale=true;
+  CU.name=d.profile?.name||CU.name||'Pemilik Kios';
+  CU.foto=d.profile?.foto||'';
+  CU.qris=d.profile?.qris||'';
+  CU.pin=d.profile?.pin||'';
+  CU.pinSalt=d.profile?.pinSalt||'';
   lastCloudUpdatedAt=row.updated_at||lastCloudUpdatedAt;
-  localDirty=false;cloudDirty=false;
+  remoteDataPending=false;
+  lastPushedSer=JSON.stringify(currentPayload());
+  writeLocalCache();
   setUser();
-  if(refresh)render();
-  writeLocalCache();try{lastPushedSer=JSON.stringify(currentPayload())}catch(_){}
- }finally{applyingRemote=false}
+  return true;
+ }catch(e){
+  console.warn('Muat data terbaru tertunda:',e);
+  return false;
+ }
 }
-/* Ambil data terbaru saat aplikasi kembali dibuka (perangkat sempat tidur / realtime terlewat) */
-async function pullLatest(){
- if(!sb||!CU||!cloudReady||cloudBusy||cloudDirty||localDirty)return;
- try{
-  const {data:row,error}=await sb.from('kios_fika_state').select('payload,updated_at').eq('id',1).maybeSingle();
-  if(error||!row?.payload)return;
-  if(cloudBusy||cloudDirty||localDirty)return;
-  if(lastCloudUpdatedAt&&String(row.updated_at||'')<=String(lastCloudUpdatedAt))return;
-  applyRemoteData(row,false);
- }catch(_){}
-}
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')pullLatest()});
 function subscribeRealtime(){
  if(!sb||!CU||realtimeChannel)return;
  realtimeChannel=sb.channel('kios-fika-shared-state')
@@ -534,8 +576,7 @@ function subscribeRealtime(){
    const row=payload.new;if(!row?.payload)return;
    const stamp=String(row.updated_at||'');
    if(lastCloudUpdatedAt&&stamp&&stamp<=String(lastCloudUpdatedAt))return;
-   if(cloudBusy||cloudDirty||localDirty){remotePendingRow=row;return}
-   applyRemoteData(row,false);
+   remoteDataPending=true;
   })
   .subscribe(status=>{
    if(status==='SUBSCRIBED')console.info('Kios Fika Realtime tersambung');
@@ -573,13 +614,14 @@ async function startWithoutLogin(){
    CU.id=user.id;CU.email=user.email||'Sesi perangkat';cloudReady=true;writeLocalCache();
    await pushCloudState();
   }else if(row&&row.payload){
-   CU.id=user.id;CU.email=user.email||'Sesi perangkat';cloudReady=true;
-   applyRemoteData(row,S.page==='dash');
+   enter(user,row.payload,false);
   }else{
    CU.id=user.id;CU.email=user.email||'Sesi perangkat';cloudReady=true;
    await pushCloudState();
   }
   if(row?.updated_at)lastCloudUpdatedAt=row.updated_at;
+  try{lastPushedSer=JSON.stringify(currentPayload())}catch(_){}
+  remoteDataPending=false;
   subscribeRealtime();
   e.textContent='';
  }catch(err){
@@ -588,7 +630,7 @@ async function startWithoutLogin(){
   else{e.textContent='Gagal membuka aplikasi: '+(err.message||'Periksa koneksi dan konfigurasi Supabase.');toast('⚠️ '+e.textContent,7000)}
  }
 }
-async function enter(user,d,preview=false){applyingState=true;cloudReady=!preview;CU={id:user.id,role:'admin',email:user.email||'Sesi perangkat',name:d.profile?.name||user.user_metadata?.name||'Pemilik Kios',foto:d.profile?.foto||'',qris:d.profile?.qris||'',pin:d.profile?.pin||'',pinSalt:d.profile?.pinSalt||''};S.prods=Array.isArray(d.prods)?d.prods:[];S.trx=Array.isArray(d.trx)?d.trx:[];S.cfg=d.cfg||{toko:'Kios Fika',exp:30};S.cats=d.cats||[];S.bin=d.bin||[];S.cart=Array.isArray(d.cart)?d.cart:[];S.productDraft=d.productDraft&&typeof d.productDraft==='object'?d.productDraft:{};S.page='dash';S.flash=null;S.newAcc=null;S.useQ=false;pages=BASEPAGES.slice();if(!S.cfg.toko)S.cfg.toko='Kios Fika';login_.style.display='none';app.style.display='block';setUser();nav();go('dash');applyingState=false;if(!preview)writeLocalCache();setTimeout(()=>{const n=expList().length;if(n)toast('⚠️ '+n+' barang hampir/sudah kadaluarsa')},2600)}
+async function enter(user,d,preview=false){applyingState=true;cloudReady=!preview;CU={id:user.id,role:'admin',email:user.email||'Sesi perangkat',name:d.profile?.name||user.user_metadata?.name||'Pemilik Kios',foto:d.profile?.foto||'',qris:d.profile?.qris||'',pin:d.profile?.pin||'',pinSalt:d.profile?.pinSalt||''};S.prods=Array.isArray(d.prods)?d.prods:[];S.trx=Array.isArray(d.trx)?d.trx:[];S.cfg=d.cfg||{toko:'Kios Fika',exp:30};S.cats=d.cats||[];S.bin=d.bin||[];if(preview){S.cart=Array.isArray(d.cart)?d.cart:[];S.productDraft=d.productDraft&&typeof d.productDraft==='object'?d.productDraft:{}}S.page='dash';S.flash=null;S.newAcc=null;S.useQ=false;pages=BASEPAGES.slice();if(!S.cfg.toko)S.cfg.toko='Kios Fika';login_.style.display='none';app.style.display='block';setUser();nav();go('dash');applyingState=false;if(!preview)writeLocalCache();setTimeout(()=>{const n=expList().length;if(n)toast('⚠️ '+n+' barang hampir/sudah kadaluarsa')},2600)}
 async function hasCloudState(){const {data,error}=await sb.from('kios_fika_state').select('id').eq('id',1).maybeSingle();return !error&&!!data}
 async function logout(){await pushCloudState();await sb.auth.signOut();closeMdl();stopCam();CU=null;S.cart=[];app.style.display='none';login_.style.display='flex';document.getElementById('pw').value='';document.getElementById('u').value=''}
 function openMdl(h){document.getElementById('mdlc').innerHTML=h;document.getElementById('mdl').style.display='block'}
@@ -623,9 +665,9 @@ function savePin(){const g=i=>(document.getElementById(i)||{}).value||'',o=g('pi
 function offPin(){const o=(document.getElementById('pin0')||{}).value||'';if(CU.pin!==mkpw(CU.pinSalt,o))return toast('PIN salah');CU.pin='';CU.pinSalt='';lsSet();render();toast('PIN dimatikan')}
 /* --- bayar pakai QRIS --- */
 function cartTot(){const sub=S.cart.reduce((a,c)=>a+c.h*c.q,0);return sub}
-function payQ(){if(!S.cart.length)return toast('Keranjang kosong');if(cartGuard())return;if(!CU.qris)return toast('QRIS belum ditambahkan. Unggah dulu di menu Pengaturan.');
+function payQ(){if(!S.cart.length)return toast('Keranjang kosong');if(!CU.qris)return toast('QRIS belum ditambahkan. Unggah dulu di menu Pengaturan.');
  openMdl(`<h3 style="text-align:center;margin-top:0">Pembayaran QRIS</h3><div style="text-align:center"><small>Total yang harus dibayar</small><div style="font-size:28px;font-weight:700;margin:4px 0 10px">${rp(cartTot())}</div><img src="${CU.qris}" alt="QRIS" style="width:100%;max-width:300px;background:#fff;border-radius:12px;padding:8px"><p style="font-size:12px;color:var(--m)">Pelanggan scan QRIS ini, lalu masukkan nominal sesuai total di atas.</p></div><div style="display:flex;gap:8px"><button class="btn" style="flex:1" onclick="doneQ()">✔ Pembayaran Diterima</button><button class="btn o" onclick="closeMdl()">Batal</button></div>`)}
-function doneQ(){if(!S.cart.length){closeMdl();return}if(cartGuard(true))return;const tot=cartTot();S.cart.forEach(c=>S.prods.find(p=>p.id==c.id).s-=c.q);const r=mkTrx('QRIS',tot,tot);S.cart=[];S.useQ=false;save();closeMdl();render();showStruk(r)}
+function doneQ(){if(!S.cart.length){closeMdl();return}const tot=cartTot();S.cart.forEach(c=>S.prods.find(p=>p.id==c.id).s-=c.q);const r=mkTrx('QRIS',tot,tot);S.cart=[];S.useQ=false;save();closeMdl();render();showStruk(r)}
 /* ===== Gambar barcode EAN-13 (untuk dicetak / dites dari layar) ===== */
 const EL=['0001101','0011001','0010011','0111101','0100011','0110001','0101111','0111011','0110111','0001011'],EG=['0100111','0110011','0011011','0100001','0011101','0111001','0000101','0010001','0001001','0010111'],ER=['1110010','1100110','1101100','1000010','1011100','1001110','1010000','1000100','1001000','1110100'],EP=['LLLLLL','LLGLGG','LLGGLG','LLGGGL','LGLLGG','LGGLLG','LGGGLL','LGLLGL','LGLGLG','LGGLGL'];
 EP[7]='LGLGLG';EP[8]='LGLGGL';EP[9]='LGGLGL';
