@@ -299,7 +299,7 @@ return `<div class="pos"><div><div class="card" style="margin-top:0;margin-botto
 <div class="card" style="margin-top:0;height:fit-content"><h3>🛒 Keranjang</h3>${S.cart.map(c=>`<div class="row"><span>${c.n}<br><small>${rp(c.h)}</small></span><span class="qty"><button onclick="chg(${c.id},-1)">−</button> ${c.q} <button onclick="chg(${c.id},1)">+</button></span></div>`).join('')||'<small>Keranjang kosong</small>'}
 <hr style="border:0;border-top:1px solid var(--bd)"><div class="row"><span>Subtotal</span><span>${rp(sub)}</span></div><div class="row"><b>Total</b><b>${rp(sub)}</b></div>
 <label style="display:flex;align-items:center;gap:8px;margin:8px 0;font-weight:600;cursor:pointer"><input type="checkbox" ${S.useQ?'checked':''} onchange="S.useQ=this.checked;render()" style="width:18px;height:18px"> Bayar dengan QRIS</label>${S.useQ?'<small style="display:block;margin-bottom:8px;color:var(--m)">Tekan Bayar untuk menampilkan QRIS toko.</small>':'<input id="bayar" inputmode="numeric" class="inp" placeholder="Uang diterima (Rp)" oninput="fmtRp(this);kembali()"><small id="kmb" style="display:block;margin-bottom:6px;font-weight:600"></small>'}<button class="btn" style="width:100%" onclick="pay()">Bayar</button><button class="btn o" style="width:100%;margin-top:6px" onclick="S.cart=[];save();render()">Kosongkan</button></div></div>`}
-function add(id){const p=S.prods.find(x=>x.id==id),c=S.cart.find(x=>x.id==id);if(!p)return toast('Produk tidak ditemukan');if(ex(p)<0)return toast('Barang kadaluarsa, tidak bisa dijual');if((c?c.q:0)>=p.s)return toast('Stok tidak cukup');c?c.q++:S.cart.push({id,n:p.n,h:p.h,q:1});save();render()}
+function add(id){const p=S.prods.find(x=>String(x.id)===String(id)),c=S.cart.find(x=>String(x.id)===String(id));if(!p)return toast('Produk tidak ditemukan');if(ex(p)<0)return toast('Barang kadaluarsa, tidak bisa dijual');const stok=Math.max(0,Number(p.s)||0),jumlah=c?Math.max(0,Number(c.q)||0):0;if(jumlah>=stok)return toast('Stok tidak cukup untuk '+p.n+' (tersisa '+Math.max(0,stok-jumlah)+')');if(c){c.q=jumlah+1;c.n=p.n;c.h=Number(p.h)||0}else S.cart.push({id:p.id,n:p.n,h:Number(p.h)||0,q:1});save();render();toast(c?'Jumlah '+p.n+' ditambah: '+(jumlah+1):p.n+' masuk keranjang')}
 function chg(id,d){const c=S.cart.find(x=>x.id==id),p=S.prods.find(x=>x.id==id);if(!c||!p)return;if(d>0&&c.q>=p.s)return toast('Stok tidak cukup');c.q+=d;if(c.q<=0)S.cart=S.cart.filter(x=>x!==c);save();render()}
 function pay(){if(S.useQ)return payQ();if(!S.cart.length)return toast('Keranjang kosong');const sub=S.cart.reduce((a,c)=>a+c.h*c.q,0),tot=sub,by=num(document.getElementById('bayar').value);if(by<tot)return toast('Uang kurang');
 S.cart.forEach(c=>S.prods.find(p=>p.id==c.id).s-=c.q);const r=mkTrx('Tunai',tot,by);S.cart=[];save();document.getElementById('bayar').value='';render();showStruk(r)}
@@ -389,14 +389,16 @@ function okScan(c,src){const n=Date.now();if(!c)return false;if(src==='camera'&&
 function eanOK(c){if(!/^\d+$/.test(c)||(c.length!==13&&c.length!==8))return false;const d=c.split('').map(Number),k=d.pop();let t=0;d.reverse().forEach((x,i)=>t+=x*(i%2?1:3));return (10-t%10)%10===k}
 let CC={c:'',n:0,t:0},camLockedCode='',camLastSeenAt=0;
 function camMiss(){if(camLockedCode&&Date.now()-camLastSeenAt>700){camLockedCode='';CC={c:'',n:0,t:0}}}
-function camIn(raw,m){const c=String(raw||'').trim().replace(/\s+/g,''),msg=document.getElementById('cmsg'),n=Date.now();
+function camIn(raw,m){const c=String(raw||'').replace(/[\r\n\t\x00-\x1F]/g,'').trim().replace(/\s+/g,''),msg=document.getElementById('cmsg'),n=Date.now();
  if(!/^[A-Za-z0-9._\/-]{4,32}$/.test(c)){CC={c:'',n:0,t:0};return false}
+ // Buka kunci bila barcode sudah tidak terlihat selama 700 ms. Ini membuat kode yang sama bisa dipindai lagi setelah kamera dijauhkan.
+ if(camLockedCode&&n-camLastSeenAt>700){camLockedCode='';CC={c:'',n:0,t:0}}
  camLastSeenAt=n;
  if(c===camLockedCode)return false;
  if(CC.c===c&&n-CC.t<1800)CC.n++;else CC={c,n:1,t:n};CC.t=n;
  if(CC.n<2)return false;
  CC={c:'',n:0,t:0};camLockedCode=c;scanIn(c,m,'camera');if(msg)msg.textContent='✔ Terbaca: '+c+' — jauhkan kamera sebentar, lalu arahkan ke barang berikutnya (termasuk kode yang sama).';return true}
-function scanIn(code,m,src){code=String(code).trim();if(!okScan(code,src))return;onCode(code,m)}
+function scanIn(code,m,src){code=String(code??'').replace(/[\r\n\t\x00-\x1F]/g,'').trim().replace(/\s+/g,'');if(!code)return;if(!okScan(code,src))return;onCode(code,m)}
 function onCode(code,m){const msg=document.getElementById('cmsg');
  if(m=='sell'){const p=S.prods.find(x=>x.b&&fp(x.b)==fp(code));if(!p){if(document.getElementById('camov').style.display==='block'){if(msg)msg.textContent='⚠ Barcode '+code+' belum terdaftar';toast('Barcode '+code+' belum terdaftar');return}S.productDraft=S.productDraft||{};S.productDraft.b=code;S.productDraft.active=true;save();go('prod');setTimeout(()=>{const pb=document.getElementById('pb');if(pb){pb.value=code;document.getElementById('pn').focus()}},50);toast('Barcode '+code+' belum terdaftar, formulir produk dibagikan ke perangkat lain');return}add(p.id);if(msg)msg.textContent='✔ '+p.n+' ditambahkan · '+S.cart.reduce((a,c)=>a+c.q,0)+' item di keranjang. Scan barang berikutnya atau tekan Tutup.'}
  else if(m=='cek'){const p=S.prods.find(x=>x.b&&fp(x.b)==fp(code));S.ck=p?{id:p.id}:{nf:code};const r=document.getElementById('ckr');if(r)r.innerHTML=ckHTML()}
