@@ -677,6 +677,8 @@ async function pushCloudNow(){
  }
  return !localDirty&&!cloudDirty&&!lastCloudErr;
 }
+/* Catat isi yang baru dikirim, supaya gema (echo) dari kiriman lama tidak menimpa klik terbaru. */
+const OWN=[];function noteOwn(p){try{OWN.push(JSON.stringify(p));if(OWN.length>8)OWN.shift()}catch(e){}}
 async function pushCloudState(){
  if(!CU||!cloudReady||!sb)return false;
  if(cloudBusy){cloudDirty=true;return false}
@@ -685,7 +687,7 @@ async function pushCloudState(){
   // Optimistic concurrency: update hanya jika updated_at masih sama dengan versi yang dibaca.
   // Jika perangkat lain menulis lebih dahulu, baca ulang dan gabungkan sebelum mencoba lagi.
   if(lastCloudUpdatedAt&&baseCloudPayload){
-   const l0=currentPayload(),st0=new Date().toISOString();
+   const l0=currentPayload(),st0=new Date().toISOString();noteOwn(l0);
    const r0=await sb.from('kios_fika_state').update({owner_id:CU.id,payload:l0,updated_at:st0}).eq('id',1).eq('updated_at',lastCloudUpdatedAt).select('updated_at').maybeSingle();
    if(!r0.error&&r0.data){lastCloudUpdatedAt=r0.data.updated_at||st0;baseCloudPayload=cloneData(l0);lastPushedSer=JSON.stringify(l0);localDirty=false;writeLocalCache();if(cloudDirty)scheduleCloudSave();return true}
   }
@@ -700,7 +702,7 @@ async function pushCloudState(){
      baseCloudPayload=cloneData(remote);lastCloudUpdatedAt=row.updated_at||lastCloudUpdatedAt;lastPushedSer=JSON.stringify(remote);localDirty=false;cloudDirty=false;writeLocalCache();return true;
     }
     const stamp=new Date().toISOString();
-    let q=sb.from('kios_fika_state').update({owner_id:CU.id,payload:local,updated_at:stamp}).eq('id',1);
+    noteOwn(local);let q=sb.from('kios_fika_state').update({owner_id:CU.id,payload:local,updated_at:stamp}).eq('id',1);
     q=row.updated_at==null?q.is('updated_at',null):q.eq('updated_at',row.updated_at);
     const {data,error}=await q.select('updated_at').maybeSingle();
     if(error)throw error;
@@ -736,6 +738,7 @@ async function refreshSharedData(force=false){
  if(!sb||!CU||!cloudReady)return false;if(refreshBusy){refreshQueued=true;return false}refreshBusy=true;
  try{
   const row=await fetchCloudRow();if(!row?.payload)return false;
+  if((cloudBusy||cloudDirty||localDirty)&&OWN.includes(JSON.stringify(row.payload))){remoteDataPending=false;return false}
   const stamp=String(row.updated_at||'');if(!force&&!remoteDataPending&&stamp&&stamp===String(lastCloudUpdatedAt||''))return false;
   if(S.page==='prod'&&isProductFormEditing())captureProductDraft();const remote=row.payload,local=currentPayload();let merged;
   if(!baseCloudPayload)merged=cloneData(remote);
