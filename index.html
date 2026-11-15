@@ -291,7 +291,7 @@ aside .br{font-size:19px;letter-spacing:.2px}
  <div class="top"><input id="q" class="inp" placeholder="Cari produk, barcode, atau transaksi..." oninput="searchD()"><div class="user"><div class="av" id="uav">A</div><span><span id="unm">Admin</span><br><small id="urole">Kasir</small></span><span class="pill" style="margin:0">Tanpa Login</span></div></div>
  <div id="view"></div>
  <div class="foot"><span>Kios Fika | Sistem Informasi Kasir</span><span>Kasir digital Kios Fika</span></div>
-</main></div><div id="camov" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:30;padding:16px;overflow:auto"><div class="card" style="max-width:420px;margin:auto"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px"><h3 style="margin:0">📷 Scan Barcode</h3><button class="btn o" onclick="stopCam()">✕ Tutup</button></div><div id="rd" style="width:100%"></div><p id="cmsg" style="font-size:14px;color:var(--m)">Arahkan kamera ke barcode</p><button class="btn o" style="width:100%" onclick="stopCam()">Tutup</button></div></div><div id="prt"></div><div id="mdl" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:32;padding:16px;overflow:auto"><div class="card" id="mdlc" style="max-width:420px;margin:auto"></div></div><div id="toast"></div>
+</main></div><div id="camov" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:30;padding:16px;overflow:auto"><div class="card" style="max-width:420px;margin:auto"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px"><h3 style="margin:0">📷 Scan Barcode</h3><button class="btn o" onclick="stopCam()">✕ Tutup</button></div><div id="rd" style="width:100%"></div><select id="camSel" class="inp" style="display:none" onchange="camPick(this.value)"></select><p id="cmsg" style="font-size:14px;color:var(--m)">Arahkan kamera ke barcode</p><small style="display:block;color:var(--m);margin-bottom:8px">Tips: jauhkan barcode sekitar 15–25 cm dari kamera, tahan 1–2 detik, pastikan cukup terang dan tidak silau. Kalau kamera laptop kurang jelas, pilih kamera lain di daftar atas.</small><button class="btn o" style="width:100%" onclick="stopCam()">Tutup</button></div></div><div id="prt"></div><div id="mdl" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:32;padding:16px;overflow:auto"><div class="card" id="mdlc" style="max-width:420px;margin:auto"></div></div><div id="toast"></div>
 <script async src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 const dt=n=>{const d=new Date();d.setDate(d.getDate()+n);return d.toISOString().slice(0,10)};
@@ -455,7 +455,7 @@ function camIn(raw,m){const c=String(raw||'').replace(/[\r\n\t\x00-\x1F]/g,'').t
  camLastSeenAt=n;
  if(c===camLockedCode)return false;
  if(CC.c===c&&n-CC.t<1800)CC.n++;else CC={c,n:1,t:n};CC.t=n;
- if(CC.n<2)return false;
+ if(CC.n<2&&!strongCode(c))return false;
  CC={c:'',n:0,t:0};camLockedCode=c;scanIn(c,m,'camera');if(m==='cek'){const p=S.prods.find(x=>x.b&&fp(x.b)===fp(c));stopCam();if(p)toast('✔ '+p.n+' · '+rp(p.h)+' · stok '+p.s);else toast('Barcode '+c+' tidak ditemukan');return true}if(msg)msg.textContent='✔ Terbaca: '+c+' — jauhkan kamera sebentar, lalu arahkan ke barang berikutnya (termasuk kode yang sama).';return true}
 function recordScanEvent(code,mode,product,status){
  S.scanEvents=Array.isArray(S.scanEvents)?S.scanEvents:[];
@@ -496,28 +496,52 @@ function camErr(e){const n=(e&&e.name)||String(e||'');const d=' [info: '+locatio
  if(n=='NotFoundError'||n=='OverconstrainedError')return 'Kamera tidak ditemukan di perangkat ini.'+d;
  if(n=='NotReadableError')return 'Kamera sedang dipakai aplikasi lain. Tutup aplikasi kamera/tab lain lalu coba lagi.'+d;
  return 'Kamera tidak bisa dibuka.'+d}
+let camDev='';try{camDev=localStorage.getItem('kios_cam_dev')||''}catch(_){}
+const strongCode=c=>eanOK(c)||(/^\d{12}$/.test(c)&&eanOK('0'+c));
+async function camStopStreams(){if(NV){NV.run=false;try{NV.st.getTracks().forEach(t=>t.stop())}catch(_){}NV=null}if(H5){const h=H5;H5=null;try{await h.stop()}catch(_){}try{h.clear()}catch(_){}}const rd=document.getElementById('rd');if(rd)rd.innerHTML=''}
+async function camFillSel(){const sel=document.getElementById('camSel');if(!sel||!navigator.mediaDevices||!navigator.mediaDevices.enumerateDevices)return;
+ try{const ds=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');
+  if(ds.length<2){sel.style.display='none';return}
+  sel.innerHTML='<option value="">Kamera otomatis</option>'+ds.map((d,i)=>`<option value="${esc(d.deviceId)}" ${d.deviceId===camDev?'selected':''}>${esc(d.label||('Kamera '+(i+1)))}</option>`).join('');
+  sel.style.display='block'}catch(_){}}
+function camPick(id){camDev=id||'';try{localStorage.setItem('kios_cam_dev',camDev)}catch(_){}camStopStreams().then(()=>cam(CM))}
 async function startNative(m,msg){
  const fmts=await BarcodeDetector.getSupportedFormats();const wanted=['ean_13','ean_8','upc_a','upc_e','code_128','code_39','itf','codabar'];const use=wanted.filter(x=>fmts.includes(x));if(!use.length)throw new Error('Format barcode 1D tidak didukung');const det=new BarcodeDetector({formats:use});
- const st=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});
+ /* Uji detektor bawaan browser; bila tidak berfungsi di perangkat ini, otomatis pakai pustaka cadangan. */
+ const tc=document.createElement('canvas');tc.width=tc.height=32;await det.detect(tc);
+ const base={width:{ideal:1920},height:{ideal:1080}},tries=[];
+ if(camDev)tries.push({deviceId:{exact:camDev},...base});
+ tries.push({facingMode:{ideal:'environment'},...base});tries.push({...base});tries.push(true);
+ let st=null,lastErr=null;
+ for(const vc of tries){try{st=await navigator.mediaDevices.getUserMedia({video:vc,audio:false});break}catch(e){lastErr=e;if(e&&['NotAllowedError','SecurityError','NotReadableError'].includes(e.name))throw e}}
+ if(!st)throw lastErr||new Error('kamera');
+ NV={st,run:false,fail:0};
  const v=document.createElement('video');v.setAttribute('playsinline','');v.muted=true;v.style.cssText='width:100%;border-radius:12px;background:#000';v.srcObject=st;
  const rd=document.getElementById('rd');rd.innerHTML='';rd.appendChild(v);await v.play();
- NV={st,run:true};msg.textContent='Arahkan ke satu barcode batang 1D bernomor. Jangan sertakan barcode lain.';
- const loop=async()=>{if(!NV||!NV.run)return;try{const r=await det.detect(v);
- // Hanya terima satu simbol barcode 1D yang terdeteksi utuh dalam satu frame.
- // Jika ada lebih dari satu barcode terlihat, abaikan frame agar tidak salah memilih.
- if(r.length===1){const val=String(r[0].rawValue||'').trim();camIn(val,m)}
- else{camMiss();if(r.length>1)msg.textContent='Terdeteksi lebih dari satu barcode. Arahkan kamera ke satu barcode saja.'}
- }catch(e){}setTimeout(loop,110)};loop()}
+ try{await st.getVideoTracks()[0].applyConstraints({advanced:[{focusMode:'continuous'}]})}catch(_){}
+ NV.run=true;NV.fail=0;msg.textContent='Arahkan ke satu barcode batang 1D bernomor. Jangan sertakan barcode lain.';camFillSel();
+ const loop=async()=>{if(!NV||!NV.run)return;try{const r=await det.detect(v);NV.fail=0;
+  let pick=null;if(r.length===1)pick=r[0];else if(r.length>1){const g=r.filter(x=>strongCode(String(x.rawValue||'').trim()));if(g.length===1)pick=g[0]}
+  if(pick)camIn(String(pick.rawValue||'').trim(),m);
+  else{camMiss();if(r.length>1)msg.textContent='Terdeteksi lebih dari satu barcode. Arahkan kamera ke satu barcode saja.'}
+  }catch(e){if(NV&&++NV.fail>=12){await camStopStreams();msg.textContent='Membuka pemindai cadangan...';startLib(m,msg);return}}setTimeout(loop,110)};loop()}
 async function startLib(m,msg){
  try{await loadLib()}catch(e){msg.textContent='Pustaka scan gagal dimuat (cek internet). Pakai alat scanner atau ketik barcode.';return}
- H5=mk('rd');const cfg={fps:18,videoConstraints:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080}},qrbox:(w,h)=>({width:Math.floor(Math.min(w*.9,380)),height:Math.floor(Math.min(h*.5,160))})};
- const ok=t=>{camIn(t,m)};const miss=()=>camMiss();
- try{await H5.start({facingMode:'environment'},cfg,ok,miss);msg.textContent='Arahkan ke satu barcode batang 1D bernomor. Jangan sertakan barcode lain.'}
- catch(e){try{const c=await Html5Qrcode.getCameras();if(!c.length)throw {name:'NotFoundError'};await H5.start(c[0].id,cfg,ok,miss);msg.textContent='Arahkan ke satu barcode batang 1D bernomor.'}catch(e2){msg.textContent=camErr(e2&&e2.name?e2:e)}}}
+ const mkCfg=vc=>({fps:15,videoConstraints:{...vc,width:{ideal:1280},height:{ideal:720}},qrbox:(w,h)=>({width:Math.floor(w*.92),height:Math.floor(Math.min(h*.7,260))})});
+ const ok=t=>{camIn(t,m)},miss=()=>camMiss();
+ const tries=[];if(camDev)tries.push({deviceId:{exact:camDev}});tries.push({facingMode:'environment'});
+ let cams=[];try{cams=await Html5Qrcode.getCameras()}catch(_){}
+ cams.forEach(c=>tries.push({deviceId:{exact:c.id}}));tries.push({facingMode:'user'});
+ let lastErr=null;
+ for(const vc of tries){
+  try{await camStopStreams();H5=mk('rd');await H5.start(vc.deviceId?vc.deviceId.exact:{facingMode:vc.facingMode},mkCfg(vc),ok,miss);msg.textContent='Arahkan ke satu barcode batang 1D bernomor. Jangan sertakan barcode lain.';camFillSel();return}
+  catch(e){lastErr=e;if(e&&['NotAllowedError','PermissionDeniedError','SecurityError'].includes(e.name))break}
+ }
+ msg.textContent=camErr(lastErr&&lastErr.name?lastErr:(lastErr||'NotFoundError'))}
 async function cam(m){CM=m;CC={c:'',n:0,t:0};camLockedCode='';camLastSeenAt=0;document.getElementById('camov').style.display='block';const msg=document.getElementById('cmsg');msg.textContent='Membuka kamera...';
  try{AC=AC||new(window.AudioContext||window.webkitAudioContext)();AC.resume()}catch(e){}
  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){msg.textContent='Kamera butuh koneksi aman (HTTPS). Buka lewat alamat https:// di Chrome,. [info: '+location.protocol+']';return}
- if(window.BarcodeDetector){try{await startNative(m,msg);return}catch(e){if(NV){NV.run=false;NV.st.getTracks().forEach(t=>t.stop());NV=null}if(e&&['NotAllowedError','SecurityError','NotFoundError','NotReadableError'].includes(e.name)){msg.textContent=camErr(e);return}}}
+ if(window.BarcodeDetector){try{await startNative(m,msg);return}catch(e){await camStopStreams();if(e&&['NotAllowedError','SecurityError','NotReadableError'].includes(e.name)){msg.textContent=camErr(e);return}}}
  await startLib(m,msg)}
 function stopCam(){document.getElementById('camov').style.display='none';if(NV){NV.run=false;NV.st.getTracks().forEach(t=>t.stop());NV=null}if(H5){const h=H5;H5=null;h.stop().then(()=>h.clear()).catch(()=>{})}document.getElementById('rd').innerHTML=''}
 
